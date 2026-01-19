@@ -34,7 +34,12 @@ DEBUG = True
 
 # allow any host to host our django app
 # will change this in production to specific domain names ...herokuapp.com, etc.
-ALLOWED_HOSTS = ["*"]
+#ALLOWED_HOSTS = ["*"]
+#ALLOWED_HOSTS = ["kpbackend-423a8e253858.herokuapp.com", "127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", "127.0.0.1", "localhost",
+                 'magnificent-figolla-d3b835.netlify.app',
+                 ]
+#django-with-redis-c6f7d6ccaf6e.herokuapp.com
 
 
 # Application definition
