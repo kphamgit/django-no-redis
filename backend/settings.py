@@ -16,6 +16,7 @@ import dj_database_url
 from dotenv import load_dotenv
 
 import os
+import urllib.parse
 
 
 load_dotenv()
@@ -117,13 +118,18 @@ TEMPLATES = [
     },
 ]
 
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+
 
 #WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
+# Fallback to local Redis if REDIS_URL environment variable isn't set
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 
+# Parse the URL to check the protocol
+url = urllib.parse.urlparse(REDIS_URL)
+print("Parsed REDIS_URL:", url)
+print(" Scheme:", url.scheme)
 print("REDIS_URL:", REDIS_URL)
 # 3. Configure CHANNEL_LAYERS to use Redis
 """
@@ -146,31 +152,59 @@ import urllib.parse
 # 1. Parse the Redis URL provided by Heroku
 #redis_url = urllib.parse.urlparse(os.environ.get('REDIS_URL'))
 
+"""
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [{
-                "address": os.environ.get('REDIS_URL'),
-                "ssl_cert_reqs": None  # <--- THIS IS THE KEY FIX
+                "address": REDIS_URL,
+                # Use SSL settings ONLY if the protocol is 'rediss'
+                "ssl_cert_reqs": None if url.scheme == "rediss" else None,
             }],
         },
     },
 }
 
 print("CHANNEL_LAYERS:", CHANNEL_LAYERS)
+"""
 
-# 4. Add CACHES (Using Django's built-in Redis backend)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+url = urllib.parse.urlparse(REDIS_URL)
+
+# --- Base Redis Configuration ---
+# Use db 0 for Cache, db 1 for Channels
+cache_url = f"{REDIS_URL}/0"
+channels_url = f"{REDIS_URL}/1"
+
+# SSL Logic (Same as we did for Channel Layers)
+ssl_options = {}
+if url.scheme == 'rediss':
+    ssl_options = {"ssl_cert_reqs": None}
+
+# --- 1. CHANNEL_LAYERS Configuration ---
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [{
+                "address": channels_url,
+                **ssl_options
+            }],
+        },
+    },
+}
+
+# --- 2. CACHES Configuration ---
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
+        "LOCATION": cache_url,
         "OPTIONS": {
-            "ssl_cert_reqs": None,  # Bypasses SSL cert validation on Heroku
+            "connection_class_kwargs": ssl_options
         }
     }
 }
-
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
