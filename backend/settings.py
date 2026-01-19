@@ -150,6 +150,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://tienganhphuyen.com",
     "https://wwww.kevinphamenglish.com",
     "https://kevinphamenglish.com",
+    "https://magnificent-figolla-d3b835.netlify.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
