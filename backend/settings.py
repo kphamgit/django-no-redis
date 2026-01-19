@@ -36,10 +36,19 @@ DEBUG = True
 # will change this in production to specific domain names ...herokuapp.com, etc.
 #ALLOWED_HOSTS = ["*"]
 #ALLOWED_HOSTS = ["kpbackend-423a8e253858.herokuapp.com", "127.0.0.1", "localhost"]
-ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", "127.0.0.1", "localhost",
-                 'magnificent-figolla-d3b835.netlify.app',
-                 ]
-#django-with-redis-c6f7d6ccaf6e.herokuapp.com
+#
+ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", "127.0.0.1", "localhost"]
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5174",  # Your frontend's origin
+    "http://localhost:5175", 
+    "http://localhost:5173",
+    "https://magnificent-figolla-d3b835.netlify.app",  # Your frontend domain
+    "https://wwww.tienganhphuyen.com",
+    "https://tienganhphuyen.com",
+    "https://wwww.kevinphamenglish.com",
+    "https://kevinphamenglish.com",
+]
 
 
 # Application definition
