@@ -124,6 +124,7 @@ DATABASES = {
     )
 }
 
+print("DATABASE URL in use:", os.getenv('DATABASE_CONNECTION_POOL_URL', 'Default DATABASE_URL'))
 print("Database configuration:", DATABASES['default'])
 
 # Password validation
