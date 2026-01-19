@@ -39,7 +39,10 @@ DEBUG = True
 #ALLOWED_HOSTS = ["*"]
 #ALLOWED_HOSTS = ["kpbackend-423a8e253858.herokuapp.com", "127.0.0.1", "localhost"]
 #
-ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", "127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", 
+                 "127.0.0.1", "localhost",
+                 'magnificent-figolla-d3b835.netlify.app', # Add your frontend domain!
+                 ]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
