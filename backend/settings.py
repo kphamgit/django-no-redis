@@ -119,18 +119,15 @@ REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 #WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+
 print("REDIS_URL:", REDIS_URL)
-
-
+# 3. Configure CHANNEL_LAYERS to use Redis
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": REDIS_URL,
-                #"ssl": ssl_context,  # Critical for Heroku connections
-                "ssl": True, 
-            }],
+            "hosts": [REDIS_URL],  # Use the REDIS_URL directly
         },
     },
 }
