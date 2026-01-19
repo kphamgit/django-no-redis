@@ -128,9 +128,9 @@ REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 
 # Parse the URL to check the protocol
 url = urllib.parse.urlparse(REDIS_URL)
-print("Parsed REDIS_URL:", url)
-print(" Scheme:", url.scheme)
-print("REDIS_URL:", REDIS_URL)
+#print("Parsed REDIS_URL:", url)
+#print(" Scheme:", url.scheme)
+#print("REDIS_URL:", REDIS_URL)
 # 3. Configure CHANNEL_LAYERS to use Redis
 """
 CHANNEL_LAYERS = {

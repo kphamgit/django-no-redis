@@ -24,8 +24,10 @@ class ChatroomConsumer(WebsocketConsumer):
         
         self.user_name = self.scope["url_route"]["kwargs"]["user_name"]
         
+        print("Connected User Name:", self.user_name)
+        
         self.room_group_name = "students_room"     # only one group
-        print("Room Group Name:", self.room_group_name)
+        #print("Room Group Name:", self.room_group_name)
         self.accept()
 
         # Join room group
@@ -34,6 +36,7 @@ class ChatroomConsumer(WebsocketConsumer):
             self.channel_name    # channel_name is automatically generated and is unique for each connection
         )
 
+        # send connection established message
         self.send(text_data=json.dumps({
             "type": "connection_established",
             "message": "WebSocket connection established."
@@ -41,30 +44,40 @@ class ChatroomConsumer(WebsocketConsumer):
 
     def receive(self, text_data):
         text_data_json = json.loads(text_data)
+        #print("Received data text_data_json:", text_data_json)
         message = text_data_json.get("message", "")
-        print("Received message:", message)
+        source_user = text_data_json.get("user_name", "")
+        message_type = text_data_json.get("message_type", "")
+        #print("Received message:", message)
         
         """
+        # 
         self.send(text_data=json.dumps({
             "type": "chat",
             "message": message,
         }))
         """
-        # Send message to room group
-        async_to_sync(self.channel_layer.group_send)(
+        # Relay message to room group
+        # when the group_send is called, the chat_message event handler method is triggered
+        # and message is sent to everyone in the group
+        async_to_sync(self.channel_layer.group_send)(    # triggers an event handler method
             self.room_group_name,
             {
-                "type": "chat_messsage",
-                "message": message,
+                "type": "send_message_handler",   # name of event handler method
+                "message_type": message_type,
+                "message": message,     # the 'message' key will be passed to the event handler method
+                "user_name": source_user,
             },
         ) 
         
-    def chat_messsage(self, event):
-        message = event["message"]
+    def send_message_handler(self, event): # event handler method
+        #print("Event received in send_message_handler:", event)
+        message = event["message"]   # get value of 'message' key from event dict
+        source_user = event["user_name"]
         self.send(text_data=json.dumps({
-            "type": "chat",
+            "message_type": event["message_type"],
             "message": message,
-            "user_name": self.user_name,
+            "user_name": source_user,
         }))
         
     def disconnect(self, close_code):
