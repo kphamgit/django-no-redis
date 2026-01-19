@@ -131,6 +131,9 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [REDIS_URL],  # Use the REDIS_URL directly
+            "redis_config": {
+                "ssl_cert_reqs": None, # Disables SSL certificate verification
+            }
         },
     },
 }
