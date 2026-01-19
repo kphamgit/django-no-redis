@@ -56,7 +56,9 @@ CORS_ALLOWED_ORIGINS = [
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'api.apps.ApiConfig',
+    'english.apps.EnglishConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -112,8 +114,34 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'backend.wsgi.application'
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 
+#WSGI_APPLICATION = 'backend.wsgi.application'
+ASGI_APPLICATION = "backend.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [{
+                "address": REDIS_URL,
+                #"ssl": ssl_context,  # Critical for Heroku connections
+                #"ssl_cert_reqs": None, 
+            }],
+        },
+    },
+}
+
+# 4. Add CACHES (Using Django's built-in Redis backend)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "ssl_cert_reqs": None,  # Bypasses SSL cert validation on Heroku
+        }
+    }
+}
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
@@ -126,8 +154,8 @@ DATABASES = {
     )
 }
 
-print("DATABASE URL in use:", os.getenv('DATABASE_CONNECTION_POOL_URL', 'Default DATABASE_URL'))
-print("Database configuration:", DATABASES['default'])
+#print("DATABASE URL in use:", os.getenv('DATABASE_CONNECTION_POOL_URL', 'Default DATABASE_URL'))
+#print("Database configuration:", DATABASES['default'])
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
