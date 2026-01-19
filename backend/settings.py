@@ -119,6 +119,9 @@ REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 #WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
+print("REDIS_URL:", REDIS_URL)
+
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
@@ -126,11 +129,13 @@ CHANNEL_LAYERS = {
             "hosts": [{
                 "address": REDIS_URL,
                 #"ssl": ssl_context,  # Critical for Heroku connections
-                #"ssl_cert_reqs": None, 
+                "ssl": True, 
             }],
         },
     },
 }
+
+print("CHANNEL_LAYERS:", CHANNEL_LAYERS)
 
 # 4. Add CACHES (Using Django's built-in Redis backend)
 CACHES = {
