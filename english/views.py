@@ -17,13 +17,6 @@ from rest_framework.decorators import api_view
 from django.http import JsonResponse
 from django.views.decorators.csrf import get_token
 
-def get_csrf_token(request):
-    print("get_csrf_token called request =", request)
-    my_token = get_token(request)
-    print("CSRF token:", my_token)
-    return JsonResponse({"token": my_token})
-
-
 class CategoryCreateView(generics.CreateAPIView):
     #print("********* CategoryCreateView called")
     serializer_class = CategorySerializer

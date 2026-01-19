@@ -117,7 +117,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': dj_database_url.config(
+    'default': dj_database_url.config(env='DATABASE_CONNECTION_POOL_URL',
         default='postgres://kevinpham:ttrami120110@localhost:5432/fullstack1',
         conn_max_age=600,  # Optional: enable connection pooling
         ssl_require=False  # Set to True if your production database requires SSL
