@@ -126,6 +126,7 @@ REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
 
 print("REDIS_URL:", REDIS_URL)
 # 3. Configure CHANNEL_LAYERS to use Redis
+"""
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
@@ -134,6 +135,25 @@ CHANNEL_LAYERS = {
             "redis_config": {
                 "ssl_cert_reqs": None, # Disables SSL certificate verification
             }
+        },
+    },
+}
+"""
+
+import os
+import urllib.parse
+
+# 1. Parse the Redis URL provided by Heroku
+#redis_url = urllib.parse.urlparse(os.environ.get('REDIS_URL'))
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [{
+                "address": os.environ.get('REDIS_URL'),
+                "ssl_cert_reqs": None  # <--- THIS IS THE KEY FIX
+            }],
         },
     },
 }
