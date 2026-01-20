@@ -57,8 +57,18 @@ class UnitListView(generics.ListAPIView):
         #print("UnitListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
    
-  
-   
+@api_view(["GET"])
+def get_question_by_number(request, quiz_id, question_number):
+    print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
+    try:
+        question = Question.objects.get(quiz_id=quiz_id, question_number=question_number)
+        serializer = QuestionSerializer(question)
+        return Response(serializer.data)
+    except Question.DoesNotExist:
+        return Response({
+            "error": "Question not found for the given quiz_id and question_number."
+        }, status=404)
+        
             
 @api_view(["POST"])
 def create_quiz_attempt(request, pk):
@@ -283,6 +293,20 @@ def create_question_attempt(request, pk):
             "error": "Quiz attempt not found."
         }, status=404)
         
+        
+@api_view(["POST"])
+def process_live_question_attempt(request):
+    try: 
+        #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        return Response({
+            "assessment_results": assessment_results,
+        })
+        
+    except Exception as e:
+        return Response({
+            "error": f"Error processing answer: {str(e)}"
+        }, status=500)
 
 @api_view(["POST"])
 def process_question_attempt(request, pk):

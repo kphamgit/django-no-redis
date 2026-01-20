@@ -44,11 +44,11 @@ class ChatroomConsumer(WebsocketConsumer):
 
     def receive(self, text_data):
         text_data_json = json.loads(text_data)
-        #print("Received data text_data_json:", text_data_json)
+        print("Received data text_data_json:", text_data_json)
         message = text_data_json.get("message", "")
         source_user = text_data_json.get("user_name", "")
         message_type = text_data_json.get("message_type", "")
-        #print("Received message:", message)
+        print("Received message:", message)
         
         """
         # 
@@ -71,12 +71,12 @@ class ChatroomConsumer(WebsocketConsumer):
         ) 
         
     def send_message_handler(self, event): # event handler method
-        #print("Event received in send_message_handler:", event)
-        message = event["message"]   # get value of 'message' key from event dict
+        print("Event received in send_message_handler:", event)
+        #message = event["message"]   # get value of 'message' key from event dict
         source_user = event["user_name"]
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
-            "message": message,
+            "message": event["message"],
             "user_name": source_user,
         }))
         
