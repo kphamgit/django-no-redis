@@ -218,6 +218,7 @@ if REDIS_URL.startswith('rediss'):
     CACHES["default"]["OPTIONS"]["ssl_cert_reqs"] = None
 
 # 3. Configure CHANNEL_LAYERS (Django Channels / WebSockets)
+"""
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
@@ -225,6 +226,19 @@ CHANNEL_LAYERS = {
             "hosts": [REDIS_URL],
             # Channels uses an SSL Context object rather than raw kwargs
             "ssl_context": ssl._create_unverified_context() if is_ssl else None,
+        },
+    },
+}
+"""
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL], # Ensure this starts with 'rediss://'
+            "options": {
+                "ssl_cert_reqs": None,
+            },
         },
     },
 }
