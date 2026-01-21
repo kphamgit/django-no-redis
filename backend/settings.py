@@ -231,17 +231,33 @@ CHANNEL_LAYERS = {
 }
 """
 
+# We append the ssl_cert_reqs=none parameter directly to the URL 
+# only if it's a production rediss:// URL
+RAW_REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+print("RAW_REDIS_URL:", RAW_REDIS_URL)
+
+if RAW_REDIS_URL.startswith('rediss://'):
+    # This adds the query parameter that tells the redis client to skip verification
+    if "?" in RAW_REDIS_URL:
+        CHANNEL_REDIS_URL = f"{RAW_REDIS_URL}&ssl_cert_reqs=none"
+    else:
+        CHANNEL_REDIS_URL = f"{RAW_REDIS_URL}?ssl_cert_reqs=none"
+else:
+    CHANNEL_REDIS_URL = RAW_REDIS_URL
+
+print("CHANNEL_REDIS_URL:", CHANNEL_REDIS_URL)
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL], # Ensure this starts with 'rediss://'
-            "options": {
-                "ssl_cert_reqs": None,
-            },
+            "hosts": [CHANNEL_REDIS_URL],
         },
     },
 }
+
+
+
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
