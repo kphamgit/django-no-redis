@@ -263,7 +263,17 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
-CSRF_TRUSTED_ORIGINS = ['http://localhost:5174', 'http://127.0.0.1:8000']
+CSRF_TRUSTED_ORIGINS = [
+    'https://django-with-redis-c6f7d6ccaf6e.herokuapp.com',
+    'https://tienganhphuyen.com',
+    'https://www.tienganhphuyen.com',
+    'https://kevinphamenglish.com',
+    'https://www.kevinphamenglish.com',
+    'https://magnificent-figolla-d3b835.netlify.app',
+    'https://magnificent-custard-cc8e68.netlify.com',
+    'http://localhost:5174',
+    'http://127.0.0.1:8000',
+]
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
