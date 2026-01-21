@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 from dotenv import load_dotenv
+import ssl
 
 import os
 import urllib.parse
@@ -172,7 +173,7 @@ CHANNEL_LAYERS = {
 print("CHANNEL_LAYERS:", CHANNEL_LAYERS)
 """
 
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1')
 url = urllib.parse.urlparse(REDIS_URL)
 
 # --- Base Redis Configuration ---
@@ -186,44 +187,48 @@ if url.scheme == 'rediss':
     ssl_options = {"ssl_cert_reqs": None}
 
 # --- 1. CHANNEL_LAYERS Configuration ---
+
+
+print("CACHES using REDIS_URL:", REDIS_URL)
+print("URL scheme:", url.scheme)
+
+
+
+is_ssl = url.scheme == 'rediss'
+
+print("Is SSL required for Redis connections?", is_ssl)
+
+# 2. Configure CACHES (Standard Django Cache)
+# Use Heroku's URL if available, otherwise fallback to local Redis
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
+
+import os
+
+# Create the base cache config
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {}
+    }
+}
+
+# Only add SSL bypass if we are using an 'rediss' (SSL) URL
+if REDIS_URL.startswith('rediss'):
+    CACHES["default"]["OPTIONS"]["ssl_cert_reqs"] = None
+
+# 3. Configure CHANNEL_LAYERS (Django Channels / WebSockets)
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": channels_url,
-                **ssl_options
-            }],
+            "hosts": [REDIS_URL],
+            # Channels uses an SSL Context object rather than raw kwargs
+            "ssl_context": ssl._create_unverified_context() if is_ssl else None,
         },
     },
 }
 
-# --- 2. CACHES Configuration ---
-"""
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": cache_url,
-        "OPTIONS": {
-            "connection_class_kwargs": ssl_options
-        }
-    }
-}
-"""
-
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "CONNECTION_POOL_KWARGS": {
-                # Only apply SSL settings if the URL starts with 'rediss'
-                "ssl_cert_reqs": None if url.scheme == "rediss" else "optional",
-            }
-        }
-    }
-}
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
