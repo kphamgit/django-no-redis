@@ -199,12 +199,28 @@ CHANNEL_LAYERS = {
 }
 
 # --- 2. CACHES Configuration ---
+"""
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": cache_url,
         "OPTIONS": {
             "connection_class_kwargs": ssl_options
+        }
+    }
+}
+"""
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                # Only apply SSL settings if the URL starts with 'rediss'
+                "ssl_cert_reqs": None if url.scheme == "rediss" else "optional",
+            }
         }
     }
 }
