@@ -45,6 +45,8 @@ ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com",
                  "127.0.0.1", "localhost",
                  'magnificent-figolla-d3b835.netlify.app', # Add your frontend domain!
                  'tienganhphuyen.com',
+                 'phuyenenglish.com',
+                 'www.phuyenenglish.com',
                  'wwww.tienganhphuyen.com',
                  ]
 
