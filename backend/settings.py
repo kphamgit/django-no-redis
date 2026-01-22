@@ -87,7 +87,7 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=2),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
 
@@ -295,6 +295,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
     "http://localhost:5175", 
     "http://localhost:5173",
+    'https://phuyenenglish.com',
+    'https://www.phuyenenglish.com',
     "https://wwww.tienganhphuyen.com",
     "https://tienganhphuyen.com",
     "https://wwww.kevinphamenglish.com",
@@ -316,6 +318,8 @@ CORS_ALLOW_METHODS = [
 
 CSRF_TRUSTED_ORIGINS = [
     'https://django-with-redis-c6f7d6ccaf6e.herokuapp.com',
+    'https://phuyenenglish.com',
+    'https://www.phuyenenglish.com',
     'https://tienganhphuyen.com',
     'https://www.tienganhphuyen.com',
     'https://kevinphamenglish.com',
