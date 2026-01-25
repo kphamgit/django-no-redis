@@ -56,7 +56,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 key=settings.SIMPLE_JWT['AUTH_COOKIE'],
                 value=access_token,
                 httponly=True,
-                secure=False, # Set to False only for local non-HTTPS dev
+                secure=True, # Set to False only for local non-HTTPS dev
                 samesite='Lax'
             )
             # Set Refresh Token Cookie
@@ -65,7 +65,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 key=settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'],
                 value=refresh_token,
                 httponly=True,
-                secure=False, # Set to False only for local non-HTTPS dev
+                secure=True, # Set to False only for local non-HTTPS dev
                 samesite='Lax'
             )
             
