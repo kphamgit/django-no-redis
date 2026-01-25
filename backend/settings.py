@@ -58,6 +58,7 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 #print ALLOWED_HOSTS (which comes from .env) for debugging
 print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
+"""
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
     "http://localhost:5175", 
@@ -68,7 +69,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://wwww.kevinphamenglish.com",
     "https://kevinphamenglish.com",
 ]
-
+"""
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
 
 # Application definition
 
