@@ -19,6 +19,7 @@ import ssl
 import os
 import urllib.parse
 
+from decouple import config, Csv
 
 load_dotenv()
 
@@ -34,13 +35,15 @@ print("BASE_DIR:", BASE_DIR)
 SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# DEBUG = True
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 # allow any host to host our django app
 # will change this in production to specific domain names ...herokuapp.com, etc.
 #ALLOWED_HOSTS = ["*"]
 #ALLOWED_HOSTS = ["kpbackend-423a8e253858.herokuapp.com", "127.0.0.1", "localhost"]
 #
+"""
 ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", 
                  "127.0.0.1", "localhost",
                  'magnificent-figolla-d3b835.netlify.app', # Add your frontend domain!
@@ -49,6 +52,11 @@ ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com",
                  'www.phuyenenglish.com',
                  'wwww.tienganhphuyen.com',
                  ]
+"""
+
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
+#print ALLOWED_HOSTS (which comes from .env) for debugging
+print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
