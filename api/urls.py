@@ -1,11 +1,17 @@
 from django.urls import path
 from . import views
 from django.http import JsonResponse
+from .views import CustomTokenObtainPairView, CustomTokenRefreshView, LogoutView, LevelListView
 
 #/api/quizzes/${quizId}/questions/${questionNumber}/`)
 
 urlpatterns = [
-    path("levels/", views.level_list, name="level-list"),
+    # for authentication using JWT and hppt cookies
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    
+    path("levels/", LevelListView.as_view(), name="level-list"),
     path("categories/<int:category_id>/units/", views.UnitListView.as_view(), name="unit-list"),
    
     path("quiz_attempts/<int:pk>/", views.create_quiz_attempt),     # pk is quiz_id
