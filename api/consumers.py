@@ -25,16 +25,16 @@ class ChatroomConsumer(WebsocketConsumer):
         
         self.user_name = self.scope["url_route"]["kwargs"]["user_name"]
         
-        #print("Connected User Name:", self.user_name)
+        print("Connected User Name:", self.user_name)
         
         self.room_group_name = "students_room"     # only one group
         #print("Room Group Name:", self.room_group_name)
         self.accept()
 
       # Add the user to the cache
-        #print(" new user connected")
-        #print(" current users in cache before adding:", cache.get("students_room_users", set()))
-        #print("Adding user to cache:", self.user_name)
+        print(" new user connected")
+        print(" current users in cache before adding:", cache.get("students_room_users", set()))
+        print("Adding user to cache:", self.user_name)
         self.add_user_to_cache(self.user_name)
 
         # Join room group
@@ -47,7 +47,7 @@ class ChatroomConsumer(WebsocketConsumer):
         connected_users_list = list(connected_users)
         # send connection established message
         # send this message to everybody in the group including the newly connected user
-        # print(' sending connection established message to group', connected_users_list)
+        print(' sending connection established message to group', connected_users_list)
         async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
@@ -66,7 +66,7 @@ class ChatroomConsumer(WebsocketConsumer):
         }))
         """
     def send_connection_change_message_handler(self, event): # event handler method
-        #print("Event received in send_connected_message_handler:", event)
+        print("Event received in send_connected_message_handler:", event)
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
             "message": event["message"],
@@ -74,16 +74,16 @@ class ChatroomConsumer(WebsocketConsumer):
         }))
 
     def add_user_to_cache(self, user_name):
-        #print("Trying to add user to cache. User :", user_name)
+        print("Trying to add user to cache. User :", user_name)
         """
         Add a user to the cache for connected users.
         """
         connected_users = cache.get("students_room_users", set())
-        #print("Current connected users from cache:", connected_users)
+        print("Current connected users from cache:", connected_users)
         if user_name in connected_users:
             print("User already in connected users:", user_name)
         else:
-            #print("User not in connected users. Adding user:", user_name)
+            print("User not in connected users. Adding user:", user_name)
             connected_users.add(user_name) # add the new user if not already present
             # if present, python set will ignore duplicate
             print("Finish adding user. Now, connected_users:", connected_users)
@@ -92,7 +92,7 @@ class ChatroomConsumer(WebsocketConsumer):
         
          # get the updated list and print
             updated_users = cache.get("students_room_users", set())
-            #print("Updated connected users in cache:", updated_users)
+            print("Updated connected users in cache:", updated_users)
        
     def remove_user_from_cache(self, user_name):
         """
@@ -106,15 +106,15 @@ class ChatroomConsumer(WebsocketConsumer):
         
         # get the updated list and print
         updated_users = cache.get("students_room_users", set())
-        #print("Updated connected users in cache after removal:", updated_users)
+        print("Updated connected users in cache after removal:", updated_users)
 
     def receive(self, text_data):
         text_data_json = json.loads(text_data)
-        #print("Received data text_data_json:", text_data_json)
+        print("Received data text_data_json:", text_data_json)
         message = text_data_json.get("message", "")
         source_user = text_data_json.get("user_name", "")
         message_type = text_data_json.get("message_type", "")
-        #print("Received message:", message)
+        print("Received message:", message)
         
         """
         # 
@@ -137,7 +137,7 @@ class ChatroomConsumer(WebsocketConsumer):
         ) 
         
     def send_message_handler(self, event): # event handler method
-        #print("Event received in send_message_handler:", event)
+        print("Event received in send_message_handler:", event)
         #message = event["message"]   # get value of 'message' key from event dict
         source_user = event["user_name"]
         self.send(text_data=json.dumps({
@@ -150,8 +150,8 @@ class ChatroomConsumer(WebsocketConsumer):
         # Remove the user from the cache
         self.remove_user_from_cache(self.user_name)
         # print out the updated list of connected users
-        # print("User disconnected:", self.user_name)
-        # print(" users after disconnect:", cache.get("students_room_users", set()))
+        print("User disconnected:", self.user_name)
+        print(" users after disconnect:", cache.get("students_room_users", set()))
         # Leave room group
         async_to_sync(self.channel_layer.group_discard)(
             self.room_group_name, self.channel_name
@@ -161,7 +161,7 @@ class ChatroomConsumer(WebsocketConsumer):
         connected_users_list = list(connected_users)
         # send connection established message
         # send this message to everybody in the group including the newly connected user
-        # print(' sending connection established message to group', connected_users_list)
+        print(' sending connection established message to group', connected_users_list)
         async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {

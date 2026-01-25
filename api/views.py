@@ -11,100 +11,8 @@ from .models import Unit, Question, QuizAttempt, QuestionAttempt, Level
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
-# for handling JWT tokens in cookies
-from django.conf import settings
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from rest_framework.response import Response
-
-from rest_framework.views import APIView
-from rest_framework import status
-
-class LogoutView(APIView):
-    permission_classes = [AllowAny]
-    def post(self, request):
-        response = Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
-        response.delete_cookie(settings.SIMPLE_JWT['AUTH_COOKIE'])
-        response.delete_cookie(settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'])
-        return response
-    
-    """
-    On the client side, you actually don't have to do anything special to "handle" the deletion.
-When your Django LogoutView sends the response.delete_cookie() command, 
-it includes a header called Set-Cookie with an expiration date in the past. The browser sees this and automatically wipes the cookie from its internal storage.
-
-However, you still need to clean up your Redux state so the UI reflects that the user is gone.
-    """
-
-class CustomTokenObtainPairView(TokenObtainPairView):
-    """
-    Login view: Takes credentials, returns user info in JSON, 
-    but puts tokens in HttpOnly cookies.
-    """
-    def post(self, request, *args, **kwargs):
-        print("CustomTokenObtainPairView POST called, request.data:", request.data)
-        response = super().post(request, *args, **kwargs)
-        print("CustomTokenObtainPairView POST response :", response)
-        if response.status_code == 200:
-            access_token = response.data.get('access')
-            refresh_token = response.data.get('refresh')
-            print("Access Token:", access_token)
-            print("Refresh Token:", refresh_token)
-            print(" Setting cookies...")
-            # Set Access Token Cookie
-            response.set_cookie(
-                key=settings.SIMPLE_JWT['AUTH_COOKIE'],
-                value=access_token,
-                httponly=True,
-                secure=False, # Set to False only for local non-HTTPS dev
-                samesite='Lax'
-            )
-            # Set Refresh Token Cookie
-            
-            response.set_cookie(
-                key=settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'],
-                value=refresh_token,
-                httponly=True,
-                secure=False, # Set to False only for local non-HTTPS dev
-                samesite='Lax'
-            )
-            
-         
-            # Remove tokens from the response body for security
-            del response.data['access']
-            del response.data['refresh']
-            
-            # optional response.data['message'] = "Login successful"
-            
-        print("Final response data from CustomTokenObtainPairView:", response)
-        return response
-
-class CustomTokenRefreshView(TokenRefreshView):
-    """
-    Refresh view: Takes the refresh token from the cookie,
-    returns a new access token in a cookie.
-    """
-    def post(self, request, *args, **kwargs):
-        # Move refresh token from cookie to request data for the parent class
-        refresh_token = request.COOKIES.get(settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'])
-        if refresh_token:
-            request.data['refresh'] = refresh_token
-
-        response = super().post(request, *args, **kwargs)
-        
-        if response.status_code == 200:
-            access_token = response.data.get('access')
-            response.set_cookie(
-                key=settings.SIMPLE_JWT['AUTH_COOKIE'],
-                value=access_token,
-                httponly=True,
-                secure=True,
-                samesite='Lax'
-            )
-            del response.data['access']
-
-        return response
-
 
 class CreateUserView(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -127,29 +35,14 @@ class CategoryCreate(generics.CreateAPIView):
         else:
             print(serializer.errors)
 """
-"""
+
 @api_view(["GET"])
 def level_list(request):
     #print("level_list called")
     levels = Level.objects.order_by('level_number')
     serializer = LevelWithCategoriesSerializer(levels, many=True)
-    permission_classes = [AllowAny]
     #print("level_list serializer.data:", serializer.data)
     return Response(serializer.data)
-"""
-    
-class LevelListView(generics.ListAPIView):
-    serializer_class = LevelWithCategoriesSerializer
-    permission_classes = [IsAuthenticated]
-    #permission_classes = [AllowAny]
-    
-
-    def get_queryset(self):
-        queryset = Level.objects.all().order_by('level_number')
-        #print("LevelListView, Filtered Levels no Prefetch:", queryset)
-        #print("LevelListView, SQL Query:", queryset.query)  # Debugging SQL query
-        return queryset
-    
     
 class UnitListView(generics.ListAPIView):
     serializer_class = UnitWithQuizzesSerializer

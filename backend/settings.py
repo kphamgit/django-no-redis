@@ -79,17 +79,6 @@ INSTALLED_APPS = [
     'django_extensions'
 ]
 
-
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        'api.authentication.CookieJWTAuthentication',
-    ),
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ],
-}
-
-"""
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -99,23 +88,9 @@ REST_FRAMEWORK = {
     ],
 }
 
-"""
-
-
-
-"""
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=2),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
-}
-"""
-SIMPLE_JWT = {
-    'AUTH_COOKIE': 'access_token',      # Cookie name
-    'AUTH_COOKIE_REFRESH': 'refresh_token',
-    'AUTH_COOKIE_SECURE': True,         # Only send over HTTPS
-    'AUTH_COOKIE_HTTP_ONLY': True,      # XSS protection! Prevents JS access
-    'AUTH_COOKIE_PATH': '/',            # Available across the site
-    'AUTH_COOKIE_SAMESITE': 'Lax',      # CSRF protection
 }
 
 APPEND_SLASH = True    # handle trailing slashes in URLs
@@ -317,8 +292,6 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
-CORS_ALLOWED_ALL_ORIGINS = False
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
