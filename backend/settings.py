@@ -32,7 +32,8 @@ print("BASE_DIR:", BASE_DIR)
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
+# SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
+SECRET_KEY = config('SECRET_KEY', default='unsafe-secret-key-for-dev-only')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True
@@ -99,7 +100,7 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=2),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
 

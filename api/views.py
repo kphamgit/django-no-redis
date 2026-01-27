@@ -299,6 +299,10 @@ def process_live_question_attempt(request):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
+        """
+         {'error_flag': False, 'score': 10, 'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
+        """
         return Response({
             "assessment_results": assessment_results,
         })

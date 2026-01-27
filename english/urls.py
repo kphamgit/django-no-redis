@@ -12,7 +12,9 @@ urlpatterns = [
     path("categories/<int:pk>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("units/<int:pk>/quizzes", views.QuizListView.as_view(), name="quiz-list"),
     path("quizzes/<int:pk>/questions", views.QuestionListView.as_view(), name="question-list"),
+    
     # end LIST views
+    path("quizzes/retrieve/<int:pk>/", views.QuizRetrieveView.as_view(), name="quiz-retrieve"),
     
     # CREATE views
     path("levels/", views.LevelCreateView.as_view(), name="level-create"),

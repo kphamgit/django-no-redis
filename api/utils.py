@@ -40,6 +40,7 @@ def check_cloze(user_answer, answer_key, options):
     # Return detailed results, overall error, and score
    
     #return not overall_error 
+    print("in check_cloze: cloze question results:", cloze_question_results)
     return cloze_question_results
             
 def check_button_cloze(user_answer, answer_key, options):

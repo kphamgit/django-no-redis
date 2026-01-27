@@ -278,6 +278,14 @@ class QuizEditView(generics.RetrieveUpdateAPIView):
         #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
+class QuizRetrieveView(generics.RetrieveAPIView):
+    serializer_class = QuizSerializer
+
+    def get_queryset(self):
+        quiz_id = self.kwargs.get('pk')
+        queryset = Quiz.objects.filter(id=quiz_id)
+        return queryset
+    
 class UnitEditView(generics.RetrieveUpdateAPIView):
     serializer_class = UnitSerializer
     permission_classes = [IsAuthenticated]
