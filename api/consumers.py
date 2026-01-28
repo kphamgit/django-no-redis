@@ -15,18 +15,16 @@ class ChatroomConsumer(WebsocketConsumer):
     def connect(self):
         """
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
-        print("Room Name:", self.room_name)
+        #print("Room Name:", self.room_name)
         self.temperature = self.scope["url_route"]["kwargs"]["temperature"]
-        print("Temperature:", self.temperature)
+        #print("Temperature:", self.temperature)
         #self.room_group_name = f"chat_{self.room_name}"
         #print("Room Group Name:", self.room_group_name)
         
         """
         
         self.user_name = self.scope["url_route"]["kwargs"]["user_name"]
-        
-        #print("Connected User Name:", self.user_name)
-        
+                
         self.room_group_name = "students_room"     # only one group
         #print("Room Group Name:", self.room_group_name)
         self.accept()
@@ -74,7 +72,7 @@ class ChatroomConsumer(WebsocketConsumer):
         
         quiz_id = cache.get("quiz_id", None)
         live_question_number_key = self.user_name + '_live_question_number'
-        print("....key", live_question_number_key)
+        #print("....key", live_question_number_key)
         live_question_number = cache.get(live_question_number_key)
         if quiz_id is None:   # no live_quiz
             # send base_message
@@ -83,7 +81,7 @@ class ChatroomConsumer(WebsocketConsumer):
             {
                 "type": "send_connection_establish_message_handler",   # name of event handler method
                 "message_type": "connection_established",
-                "user": self.user_name,
+                "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
             },
             )
@@ -93,7 +91,7 @@ class ChatroomConsumer(WebsocketConsumer):
             {
                 "type": "send_connection_establish_message_handler",   # name of event handler method
                 "message_type": "connection_established",
-                "user": self.user_name,
+                "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
                 "live_quiz_id": quiz_id,
             },
@@ -104,7 +102,7 @@ class ChatroomConsumer(WebsocketConsumer):
             {
                 "type": "send_connection_establish_message_handler",   # name of event handler method
                 "message_type": "connection_established",
-                "user": self.user_name,
+                "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
                 "live_quiz_id": quiz_id,
                 "live_question_number": live_question_number
@@ -116,7 +114,7 @@ class ChatroomConsumer(WebsocketConsumer):
         #print("Event received in send_connection_established_message_handler:", event)
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
-            "user": event["user"],
+            "user_name": event["user_name"],
             "other_connected_users": event["other_connected_users"],
             "live_quiz_id": event.get("live_quiz_id", None),
             "live_question_number": event.get("live_question_number", None)
@@ -126,7 +124,7 @@ class ChatroomConsumer(WebsocketConsumer):
         #print("Event received in send_connection_established_message_handler:", event)
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
-            "user": event["user"],
+            "user_name": event["user_name"],
         }))
  
 
@@ -167,7 +165,7 @@ class ChatroomConsumer(WebsocketConsumer):
 
     def receive(self, text_data):
         text_data_json = json.loads(text_data)
-        print("Received data text_data_json:", text_data_json)
+        #print("Received data text_data_json:", text_data_json)
         #{'message_type': 'quiz_id', 'message': '1', 'user_name': 'teacher'}
         #{'message_type': 'chat', 'message': 'aefefefe', 'user_name': 'teacher'}
         #{'message_type': 'disconnect_user', 'message': 'admin', 'user_name': 'teacher'}
@@ -190,7 +188,15 @@ class ChatroomConsumer(WebsocketConsumer):
         # if message_type is 'terminate_live_quiz', clear quiz_id from cache
         # and also clear all question_number entries for users in the room"
         if message_type == "terminate_live_quiz":
+            #print(" ************ terminate_live_quiz message received. Clearing quiz_id and question numbers from cache.")
             cache.delete("quiz_id")
+            # also delete all entries ending with _live_question_number for users in the room
+            users_in_room = cache.get("students_room_users", set())
+            for user in users_in_room:
+                key_to_live_question_number = f"{user}_live_question_number"
+                #print(" Deleting key:", key_to_live_question_number)
+                cache.delete(key_to_live_question_number)
+                
             #users_in_room = cache.get("students_room_users", set())
             #for user in users_in_room:
             #    cache.delete(f"{user}_question_number")
@@ -215,23 +221,25 @@ class ChatroomConsumer(WebsocketConsumer):
         # if message_type is 'question_number', find the user in "students_room_users" and save question_number to cache
         users_in_room = cache.get("students_room_users", set())
         if message_type == "live_question_attempt_started":
+            #print(" ************ live_question_attempt_started message received for user", source_user, " question:", message)
             if source_user in users_in_room:
                 cache.set(f"{source_user}_live_question_number", message, timeout=None)
             
         if message_type == "live_score":
+            #print(" ************ live_score message received for user", source_user, " score:", message)
             # delete live_question_number for the source_user now that the user's finished the question
             key_to_live_question_number = f"{source_user}_live_question_number"
+            #print(" Deleting key:", key_to_live_question_number)
             cache.delete(key_to_live_question_number)
         
         
     def send_message_handler(self, event): # event handler method
         #print("Event received in send_message_handler:", event)
         #message = event["message"]   # get value of 'message' key from event dict
-        source_user = event["user_name"]
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
             "message": event["message"],
-            "user_name": source_user,
+            "user_name": event["user_name"],
         }))
         
     def disconnect(self, close_code):
@@ -254,7 +262,7 @@ class ChatroomConsumer(WebsocketConsumer):
             {
                 "type": "send_connection_dropped_message_handler",   # name of event handler method
                 "message_type": "connection_dropped",
-                "user": self.user_name,
+                "user_name": self.user_name,
             },
         )
 

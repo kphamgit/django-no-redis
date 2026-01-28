@@ -40,7 +40,7 @@ def check_cloze(user_answer, answer_key, options):
     # Return detailed results, overall error, and score
    
     #return not overall_error 
-    print("in check_cloze: cloze question results:", cloze_question_results)
+    #print("in check_cloze: cloze question results:", cloze_question_results)
     return cloze_question_results
             
 def check_button_cloze(user_answer, answer_key, options):
@@ -49,26 +49,26 @@ def check_button_cloze(user_answer, answer_key, options):
 
 def check_button_select(user_answer, answer_key, options):
     # Placeholder function to check button select answers
-    print("in check_button_select... user_answer:", user_answer, " answer_key:", answer_key)
+    #print("in check_button_select... user_answer:", user_answer, " answer_key:", answer_key)
     error = True
     score = 0
     if user_answer.strip().lower() == answer_key.strip().lower():
         score += 5
         error = False
         
-    print("button select result... error:", error, " score:", score)
+    #print("button select result... error:", error, " score:", score)
     return {"error_flag": error, "score": score}
     #return user_answer.strip().lower() == answer_key.strip().lower()
 
 def check_radio(user_answer, answer_key, options):
-    print("in check_radio... user_answer:", user_answer, " answer_key:", answer_key)
+    #print("in check_radio... user_answer:", user_answer, " answer_key:", answer_key)
     error = True
     score = 0
     if user_answer.strip().lower() == answer_key.strip().lower():
         score += 5
         error = False
         
-    print("check_radio  result... error:", error, " score:", score)
+    #print("check_radio  result... error:", error, " score:", score)
     return {"error_flag": error, "score": score}
     #return user_answer.strip().lower() == answer_key.strip().lower()
 
@@ -83,10 +83,10 @@ def check_checkbox(user_answer, answer_key, options):
     # and ensure that each answer key is in the user answer
     score = 0
     answer_key_parts = [part.strip().lower() for part in answer_key.split('/')]
-    print("answer_key_parts:", answer_key_parts)
+    #print("answer_key_parts:", answer_key_parts)
    
     user_answer_parts = [part.strip().lower() for part in user_answer.split('/')]
-    print("user_answer_parts:", user_answer_parts)
+    #print("user_answer_parts:", user_answer_parts)
     
     all_correct = True
     for answer_key_part in answer_key_parts:
@@ -96,7 +96,7 @@ def check_checkbox(user_answer, answer_key, options):
     if all_correct:
         error = False
             
-    print("check_checkbox  result... error:", error, " score:", score, " all_correct:", all_correct)
+    #print("check_checkbox  result... error:", error, " score:", score, " all_correct:", all_correct)
     return {"error_flag": error, "score": score}
 
     #return user_answer.strip().lower() == answer_key.strip().lower()
@@ -134,12 +134,12 @@ def check_words_select(user_answer, answer_key, options):
     # iterate through each answer in the answer key
     # and ensure that each answer key is in the user answer
     score = 0
-    print("in check_words_select... user_answer:", user_answer, " answer_key:", answer_key)
+    #print("in check_words_select... user_answer:", user_answer, " answer_key:", answer_key)
     answer_key_parts = [part.strip().lower() for part in answer_key.split('/')]
-    print("answer_key_parts:", answer_key_parts)
+    #print("answer_key_parts:", answer_key_parts)
    
     user_answer_parts = [part.strip().lower() for part in user_answer.split('/')]
-    print("user_answer_parts:", user_answer_parts)
+    #print("user_answer_parts:", user_answer_parts)
     
     all_correct = True
     for answer_key_part in answer_key_parts:
@@ -149,18 +149,21 @@ def check_words_select(user_answer, answer_key, options):
     if all_correct:
         error = False
             
-    print("check_words_select  result... error:", error, " score:", score, " all_correct:", all_correct)
+    #print("check_words_select  result... error:", error, " score:", score, " all_correct:", all_correct)
     return {"error_flag": error, "score": score}
 
 def check_dropdown(user_answer, answer_key, options):
     # Placeholder function to check dropdown answers
+    #print("in check_dropdown... user_answer:", user_answer, " answer_key:", answer_key)
     user_answer_parts = [part.strip().lower() for part in user_answer.split('/')]
+    #print("user_answer_parts:", user_answer_parts)
     answer_key_parts = [part.strip().lower() for part in answer_key.split('/')]
+    #print("answer_key_parts:", answer_key_parts)
     
     # if lengths of the two parts are not the same, 
     if len(user_answer_parts) != len(answer_key_parts):
         return {"error_flag": True, "score": 0}
-    
+    #print("Lengths match, proceeding to compare parts...")
     # go through each part and compare, element by element
     error = False
     score = 0
@@ -169,7 +172,8 @@ def check_dropdown(user_answer, answer_key, options):
             score += 5
         else:
             error = True
-            
+    #print("check_dropdown  result... error:", error, " score:", score)
+    #print("Returning result from check_dropdown...")
     return {"error_flag": error, "score": score}
     #return user_answer.strip().lower() == answer_key.strip().lower()
 
@@ -188,54 +192,56 @@ def check_sentence_scramble(user_answer, answer_key, options):
 def check_answer(format, user_answer, answer_key):
     # Placeholder function to check if the user's answer is correct
     #print("Checking answer... format:", format, " user_answer:", user_answer, " answer_key:", answer_key)
+    results = {}
     if format == 1:   #cloze
         #print("Checking cloze answer...")
         cloze_question_results = check_cloze(user_answer, answer_key, options=[])
         #print("Computed cloze question results:", cloze_question_results)
-        assessment_results = {
+        results = {
             "error_flag": any(result["error_flag"] for result in cloze_question_results),
             "score": sum(result["score"] for result in cloze_question_results),
             "cloze_question_results": cloze_question_results,
         }
-        return assessment_results
+        #return results
     
     elif format == 3:  #button select
         #print("Checking button select answer...")
         results = check_button_select(user_answer, answer_key, options=[])
-        return results
+        #return results
     
     elif format == 4:  #radio
         #print("Checking radio answer...")
         results = check_radio(user_answer, answer_key, options=[])
-        return results
+        #return results
         
     elif format == 5:  #radio
         #print("Checking check_box answer...")
         results = check_checkbox(user_answer, answer_key, options=[])
-        return results
+        #return results
     
     elif format == 6:  #words scramble
         #print("Checking word_scramble answer...")
         results = check_words_scramble(user_answer, answer_key, options=[])
-        return results
+        #return results
     
     elif format == 8:  #words select
         #print("Checking word_select answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_words_select(user_answer, answer_key, options=[])
         #print("word_select results:", results)
-        return results
+        #return results
         
     elif format == 10:  #dropdowns
-        #print("Checking drop_down answer... user_answer:", user_answer, " answer_key:", answer_key)
+        print("Checking drop_down answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_dropdown(user_answer, answer_key, options=[])
-        #print("drop_down results:", results)
+        print("check drop_down results:", results)
+        #return results
         
     elif format == 12:  #sentence scramble
         #print("Checking sentence scramble answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_sentence_scramble(user_answer, answer_key, options=[])
         #print("sentence scramble results:", results)
         
-        return results
+    return results
         
     
         #return check_cloze(user_answer, answer_key, options=[])
