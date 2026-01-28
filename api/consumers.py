@@ -6,7 +6,6 @@ from channels.generic.websocket import WebsocketConsumer
 from django.core.exceptions import ValidationError
 from django.core.cache import cache
 
-
 #class ChatroomConsumer(WebsocketConsumer):
 #    def connect(self):
 #        self.accept()
@@ -22,8 +21,12 @@ class ChatroomConsumer(WebsocketConsumer):
         #print("Room Group Name:", self.room_group_name)
         
         """
+       
+        
         
         self.user_name = self.scope["url_route"]["kwargs"]["user_name"]
+        
+        #print("****** New WebSocket connection established.", self.user_name)
                 
         self.room_group_name = "students_room"     # only one group
         #print("Room Group Name:", self.room_group_name)
@@ -174,6 +177,8 @@ class ChatroomConsumer(WebsocketConsumer):
         #{'message_type': 'live_question_attempt_started', 'message': 'Question 1', 'user_name': 'admin'}
         #{'message_type': 'live_score', 'message': '5', 'user_name': 'admin'}
         #{'message_type': 'terminate_live_quiz', 'message': 'terminate', 'user_name': 'teacher'}
+        #{'message_type': 'cache_query', 'message': 'quiz_id', 'user_name': 'teacher'}
+        
         message = text_data_json.get("message", "")
         source_user = text_data_json.get("user_name", "")
         message_type = text_data_json.get("message_type", "")
@@ -198,13 +203,34 @@ class ChatroomConsumer(WebsocketConsumer):
                 #print(" Deleting key:", key_to_live_question_number)
                 cache.delete(key_to_live_question_number)
                 
-            #users_in_room = cache.get("students_room_users", set())
-            #for user in users_in_room:
-            #    cache.delete(f"{user}_question_number")
-            return # there's no need to relay to group this message
+            users_in_room = cache.get("students_room_users", set())
+            for user in users_in_room:
+                cache.delete(f"{user}_live_question_number")
+       
      
-        # else if message_type is 'quiz_id', save it to cache
-        elif message_type == "quiz_id":
+           # handle cache query message type from client
+        if message_type == "cache_query":
+            #print(" ************ cache_query message received for key", message)
+    
+            # Get value for the key specified in 'message'
+            queried_value = cache.get(message, None)
+            #print(" Queried value from cache for key", message, " is:", queried_value)
+    
+            # Convert queried_value to a list if it's a set
+            if isinstance(queried_value, set):
+                queried_value = list(queried_value)
+
+            # Send the queried value back to the source_user only
+            self.send(text_data=json.dumps({
+                "message_type": "cache_query_response",
+                "message": message,
+                "queried_value": queried_value,
+            }))
+    
+            return  # no need to relay to group
+     
+        # if message_type is 'quiz_id', save it to cache
+        if message_type == "quiz_id":
             cache.set("quiz_id", message, timeout=None)   # message is quiz_id value
             # if message_type is 'question_number', find the user in "students_room_users" and save question_number to cache
             #
@@ -234,8 +260,7 @@ class ChatroomConsumer(WebsocketConsumer):
             },
         ) 
         
-        
-        
+  
         
     def send_message_handler(self, event): # event handler method
         #print("Event received in send_message_handler:", event)
