@@ -1,7 +1,8 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt
-from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, LevelSerializer
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment
+from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
+    LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer
 from .serializers import UserSerializer
 from django.contrib.auth.models import User
@@ -78,6 +79,18 @@ class QuizListView(generics.ListAPIView):
         pk = self.kwargs.get('pk')
         return Quiz.objects.filter(unit_id=pk).order_by('quiz_number')
 
+
+class VideoSegmentListView(generics.ListAPIView):
+    serializer_class = VideoSegmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        pk = self.kwargs.get('pk')
+        query_set = VideoSegment.objects.filter(quiz_id=pk).prefetch_related('video_segment_questions').order_by('segment_number')
+        #print("VideoSegmentListView get_queryset, SQL Query:", query_set.query)  # Debugging SQL query
+        #print("VideoSegmentListView get_queryset, query_set:", query_set)
+        return query_set
+
 class QuestionListView(generics.ListAPIView):
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
@@ -97,6 +110,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
         if serializer.is_valid():
             #serializer.save()
             #kpham: NO NEED for explicit fields since all are included in serializer
+            #print("QuestionCreateView perform_create, request data:", self.request.data)
             serializer.save( 
                 question_number=self.request.data.get('question_number'),
                 format=self.request.data.get('format'),
@@ -106,6 +120,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
                 instructions=self.request.data.get('instructions'),
                 prompt=self.request.data.get('prompt'),
                 audio_str=self.request.data.get('audio_str'),
+                video_segment_id=self.request.data.get('video_segment_id', None),
             )
             
         else:
@@ -122,11 +137,31 @@ class QuizCreateView(generics.ListCreateAPIView):
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),
                 quiz_number=self.request.data.get('quiz_number'),
-                name=self.request.data.get('name')
+                name=self.request.data.get('name'),
+                video_url=self.request.data.get('video_url', '')
             )
         else:
             print(serializer.errors)
-            
+
+
+class VideoSegmentCreateView(generics.ListCreateAPIView):
+    from .serializers import VideoSegmentSerializer
+    serializer_class = VideoSegmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        #print("VideoSegmentCreateView perform_create, request data:", self.request.data)
+        if serializer.is_valid():
+            serializer.save(
+                quiz_id=self.request.data.get('quiz_id'),
+                start_time=self.request.data.get('start_time'),
+                end_time=self.request.data.get('end_time'),
+               
+            )
+        else:
+            print(serializer.errors)
+
+    
 class UnitCreateView(generics.ListCreateAPIView):
     serializer_class = UnitSerializer
     permission_classes = [IsAuthenticated]
@@ -233,20 +268,19 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
     #queryset = Question.objects.filter(question_id=question_id)  # Add this line
     #print("QuestionEditView HERE")
     def perform_update(self, serializer):
-        #print("request data:", self.request.data)
+        #print("QuestionEditView, request data:", self.request.data)  # Print the raw request data
         if serializer.is_valid():
-            print("Serializer is valid")
-            serializer.save()
-            """
-            serializer.save(
-                            audio_str=self.request.data.get('audio_str'),
-                            prompt=self.request.data.get('prompt'),
-                            content=self.request.data.get('content'),
-                            answer_key=self.request.data.get('answer_key')
-            )
-            """
+            #print("Serializer is valid")
+            # Print the validated data that will be saved to the database
+            #print("Fields being saved to the database:", serializer.validated_data)
+            # Save the validated data to the database
+            # kpham: NO NEED for explicit fields since all are included in serializer
+            # however, video_segment_id is nullable, so we handle it separately
+            # because it is included in validated_data only if not null
+            serializer.save(video_segment_id=self.request.data.get('video_segment_id', None),)
+
         else:
-            print(serializer.errors)
+            print("Serializer errors:", serializer.errors)
             
     def get_queryset(self):
         question_id = self.kwargs.get('pk')
@@ -263,7 +297,7 @@ class QuizEditView(generics.RetrieveUpdateAPIView):
     def perform_update(self, serializer):
         #print("request data:", self.request.data)
         if serializer.is_valid():
-            print("Serializer is valid")
+            #("Serializer is valid")
             serializer.save(
                 name=self.request.data.get('name'),
             )
@@ -284,6 +318,41 @@ class QuizRetrieveView(generics.RetrieveAPIView):
     def get_queryset(self):
         quiz_id = self.kwargs.get('pk')
         queryset = Quiz.objects.filter(id=quiz_id)
+        return queryset
+   
+class VideoSegmentRetrieveView(generics.RetrieveAPIView):
+    #serializer_class = VideoSegmentSerializer
+    serializer_class = VideoSegmentIdSerializer   # only return id field
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'segment_number'
+
+    def get_queryset(self):
+        segment_number = self.kwargs.get('segment_number')
+        #("VideoSegmentRetrieveView ****** get_queryset, segment_number:", segment_number)
+        queryset = VideoSegment.objects.filter(segment_number=segment_number)
+        return queryset
+    
+class VideoSegmentEditView(generics.RetrieveUpdateAPIView):
+    serializer_class = VideoSegmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_update(self, serializer):
+        #print("request data:", self.request.data)
+        if serializer.is_valid():
+            #print("Serializer is valid")
+            serializer.save(
+                start_time=self.request.data.get('start_time'),
+                end_time=self.request.data.get('end_time'),
+           
+            )
+        else:
+            print(serializer.errors)
+            
+    def get_queryset(self):
+        video_segment_id = self.kwargs.get('pk')
+        #print("VideoSegmentEditView ****** get_queryset, video_segment_id:", video_segment_id)
+        #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
+        queryset = VideoSegment.objects.filter(id=video_segment_id)
         return queryset
     
 class UnitEditView(generics.RetrieveUpdateAPIView):
@@ -434,7 +503,30 @@ class QuizRenumberView(APIView):
                 
         return Response({"message": "Questions renumbered successfully."})
             
+class VideoSegmentRenumberView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def post(self, request, *args, **kwargs):
+        print("request data:", self.request.data)
+        #request data: {'data_type': 'question', 'id_number_pairs': '[10,4,5,6]'}
+        id_numbers = self.request.data.get('id_number_pairs')
+        # Convert the string representation of the list to an actual list
+        import ast
+        id_numbers = ast.literal_eval(id_numbers)
+        print("after .... conversion: id_number_pairs:", id_numbers)
+      
+        for index, video_segment_id in enumerate(id_numbers, start=1):  # Start numbering from 1
+            #question_id = question_id
+            try:
+                video_segment = VideoSegment.objects.get(id=video_segment_id)
+                video_segment.segment_number = index  # Use the index as the new number
+                video_segment.save()
+                #print(f"Updated Question ID {question_id} to new number {index}")
+            except VideoSegment.DoesNotExist:
+                print(f"Video Segment with ID {video_segment_id} does not exist.")
+                
+        return Response({"message": "VideoSegments renumbered successfully."})
+    
 class QuestionRenumberView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -459,7 +551,7 @@ class QuestionRenumberView(APIView):
                 
         return Response({"message": "Questions renumbered successfully."})
             
-from django.apps import apps
+#from django.apps import apps
     
 class ItemDeleteView(generics.DestroyAPIView):
     serializer_class = QuizSerializer
@@ -485,6 +577,8 @@ class ItemDeleteView(generics.DestroyAPIView):
             queryset = Level.objects.filter(id=id)
         elif data_type == 'category':
             queryset = Category.objects.filter(id=id)
+        elif data_type == 'video_segment':
+            queryset = VideoSegment.objects.filter(id=id)
             
         
         print("ItemDeleteView get_queryset, queryset:", queryset)

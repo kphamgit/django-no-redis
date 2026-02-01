@@ -12,6 +12,8 @@ urlpatterns = [
     path("categories/<int:pk>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("units/<int:pk>/quizzes", views.QuizListView.as_view(), name="quiz-list"),
     path("quizzes/<int:pk>/questions", views.QuestionListView.as_view(), name="question-list"),
+    path("quizzes/<int:pk>/video_segments/", views.VideoSegmentListView.as_view(), name="video-segment-list"),
+    # for video segments list, pk is quiz_id of the quiz that the video segments belong to
     
     # end LIST views
     path("quizzes/retrieve/<int:pk>/", views.QuizRetrieveView.as_view(), name="quiz-retrieve"),
@@ -22,8 +24,12 @@ urlpatterns = [
     path("units/", views.UnitCreateView.as_view(), name="unit-create"),
     path("quizzes/", views.QuizCreateView.as_view(), name="quiz-create"),
     path("questions/", views.QuestionCreateView.as_view(), name="question-create"),
+    path("video_segments/", views.VideoSegmentCreateView.as_view(), name="video-segment-create"),
     
     # END CREATE views
+    
+    # RETRIEVE views
+    path("video_segments/retrieve_by_segment_number/<int:segment_number>/", views.VideoSegmentRetrieveView.as_view(), name="video-segment-edit"),
     
     # EDIT views
     path("levels/<int:pk>/", views.LevelEditView.as_view(), name="level-edit"),
@@ -31,6 +37,7 @@ urlpatterns = [
     path("questions/<int:pk>/", views.QuestionEditView.as_view(), name="question-edit"),
     path("quizzes/<int:pk>/", views.QuizEditView.as_view(), name="quiz-edit"),
     path("units/<int:pk>/", views.UnitEditView.as_view(), name="unit-edit"),
+    path("video_segments/<int:pk>/", views.VideoSegmentEditView.as_view(), name="video-segment-edit"),
     # end EDIT views
     
     path("quiz_attempts/", views.quiz_attempt_list),
@@ -45,6 +52,7 @@ urlpatterns = [
     path("unit/renumber", views.UnitRenumberView.as_view(), name="units-renumber"),
     path("quiz/renumber", views.QuizRenumberView.as_view(), name="quizzes-renumber"),
     path("question/renumber", views.QuestionRenumberView.as_view(), name="question-renumber"),
+    path("video_segment/renumber", views.VideoSegmentRenumberView.as_view(), name="question-renumber"),
 
 
 ]

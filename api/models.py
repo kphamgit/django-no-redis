@@ -47,9 +47,19 @@ class Quiz(models.Model):
     name = models.CharField(max_length=100)
     quiz_number = models.IntegerField()
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="quizzes")
+    video_url = models.CharField(max_length=500, blank=True, null=True, default="")
     
     def __str__(self):
         return self.name
+    
+class VideoSegment(models.Model):
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="video_segments")
+    segment_number = models.IntegerField(default=0)
+    start_time = models.CharField(max_length=50, default="")  # in seconds
+    end_time = models.CharField(max_length=50, default="")    # in seconds
+
+    def __str__(self):
+        return f"Segment from {self.start_time} to {self.end_time}"
     
 class Question(models.Model):
     question_number = models.IntegerField(default=0)
@@ -62,6 +72,7 @@ class Question(models.Model):
     prompt = models.TextField(max_length=5000, blank=True,null=True, default="")
     content = models.TextField(max_length=1000, default="")
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
+    video_segment = models.ForeignKey(VideoSegment, on_delete=models.CASCADE, related_name="video_segment_questions", blank=True, null=True)
     answer_key = models.TextField(max_length=500, default="")
     score = models.IntegerField(default=0, null=True)
     timeout = models.IntegerField(default=0, null=True)  # in miliseconds
@@ -69,7 +80,7 @@ class Question(models.Model):
     explanation = models.TextField(max_length=1000, blank=True, null=True, default="")
     hint = models.CharField(max_length=500, blank=True, null=True, default="")
     def __str__(self):
-        return self.content
+        return f"{self.question_number}"
     
 class QuizAttempt(models.Model):
     #user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_attempts")
@@ -99,3 +110,4 @@ class QuestionAttempt(models.Model):
 
     def __str__(self):
         return f"Attempt for {self.question.question_number}"
+    
