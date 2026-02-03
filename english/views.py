@@ -322,6 +322,17 @@ class QuizRetrieveView(generics.RetrieveAPIView):
    
 class VideoSegmentRetrieveView(generics.RetrieveAPIView):
     #serializer_class = VideoSegmentSerializer
+    serializer_class = VideoSegmentSerializer   # only return id field
+    permission_classes = [IsAuthenticated]
+   
+    def get_queryset(self):
+        pk = self.kwargs.get('pk')
+        #("VideoSegmentRetrieveView ****** get_queryset, segment_number:", segment_number)
+        queryset = VideoSegment.objects.filter(pk=pk)
+        return queryset
+    
+class VideoSegmentRetrieveByNumberView(generics.RetrieveAPIView):
+    #serializer_class = VideoSegmentSerializer
     serializer_class = VideoSegmentIdSerializer   # only return id field
     permission_classes = [IsAuthenticated]
     lookup_field = 'segment_number'

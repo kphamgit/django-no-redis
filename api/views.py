@@ -4,10 +4,10 @@ from django.shortcuts import render
 from django.contrib.auth.models import User
 from rest_framework import generics
 from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
-     UnitWithQuizzesSerializer, QuizAttemptSerializer
-from english.serializers import QuestionSerializer
+     UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer
+from english.serializers import QuestionSerializer 
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Question, QuizAttempt, QuestionAttempt, Level
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -43,6 +43,14 @@ def level_list(request):
     serializer = LevelWithCategoriesSerializer(levels, many=True)
     #print("level_list serializer.data:", serializer.data)
     return Response(serializer.data)
+    
+class QuizDetailView(generics.RetrieveAPIView):
+    serializer_class = QuizDetailSerializer
+    permission_classes = [IsAuthenticated]
+    #permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        return Quiz.objects.all().prefetch_related('video_segments')
     
 class UnitListView(generics.ListAPIView):
     serializer_class = UnitWithQuizzesSerializer

@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Note, Category, Level, Unit, Quiz, Question, QuestionAttempt, QuizAttempt
-from english.serializers import QuizSerializer
+from english.serializers import QuizSerializer, VideoSegmentSerializer
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -13,6 +13,15 @@ class UserSerializer(serializers.ModelSerializer):
         print(validated_data)
         user = User.objects.create_user(**validated_data)
         return user
+
+class QuizDetailSerializer(serializers.ModelSerializer):
+    video_segments = VideoSegmentSerializer(many=True)
+    class Meta:
+        model = Quiz
+        fields = ["id", "name", "quiz_number", "video_url", "video_segments",]
+        #extra_kwargs = {
+        #    "questions": {"required": False}  # Make the "questions" field optional
+        # }
 
 class QuizAttemptSerializer(serializers.ModelSerializer):
     class Meta:
