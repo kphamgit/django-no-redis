@@ -128,11 +128,12 @@ class QuestionCreateView(generics.ListCreateAPIView):
 
     #fields = ["id", "unit_id", "name", "quiz_number", "questions"]
 class QuizCreateView(generics.ListCreateAPIView):
+    print("QuizCreateView called")
     serializer_class = QuizSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("perform_create, request data:", self.request.data)
+        print("perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),
