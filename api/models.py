@@ -47,7 +47,7 @@ class Quiz(models.Model):
     name = models.CharField(max_length=100)
     quiz_number = models.IntegerField()
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="quizzes")
-    video_url = models.CharField(max_length=500, blank=True, null=True, default="")
+    video_url = models.CharField(max_length=500, blank=True, default="")
     
     def __str__(self):
         return self.name

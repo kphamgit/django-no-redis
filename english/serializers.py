@@ -15,10 +15,14 @@ class QuestionSerializer(serializers.ModelSerializer):
 class QuizSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz
+        #fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
         fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
-        #extra_kwargs = {
-        #    "questions": {"required": False}  # Make the "questions" field optional
-        #}
+        
+        extra_kwargs = {
+           "questions": {"required": False}  # Make the "questions" field optional
+        }
+        
+
 
 class UnitSerializer(serializers.ModelSerializer):
     #quizzes = QuizSerializer(many=True, read_only=True)

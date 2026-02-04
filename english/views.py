@@ -6,9 +6,9 @@ from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, Que
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer
 from .serializers import UserSerializer
 from django.contrib.auth.models import User
-from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
 from rest_framework.decorators import api_view
+from rest_framework.permissions import IsAuthenticated
 
 
 # Create your views here.
@@ -133,17 +133,16 @@ class QuizCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        print("perform_create, request data:", self.request.data)
+        #print("QuizCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),
-                quiz_number=self.request.data.get('quiz_number'),
                 name=self.request.data.get('name'),
-                video_url=self.request.data.get('video_url', '')
+                video_url=self.request.data.get('video_url'),
+                quiz_number=self.request.data.get('quiz_number'),
             )
         else:
             print(serializer.errors)
-
 
 class VideoSegmentCreateView(generics.ListCreateAPIView):
     from .serializers import VideoSegmentSerializer
@@ -168,6 +167,10 @@ class UnitCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
+        print("UnitCreateView perform_create, request data:", self.request.data)
+
+        """
+        print("UnitCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 category_id=self.request.data.get('category_id'),
@@ -176,6 +179,8 @@ class UnitCreateView(generics.ListCreateAPIView):
             )
         else:
             print(serializer.errors)
+        """
+  
            
 @api_view(["GET"])
 def quiz_attempt_get_question_attempts(request, pk):

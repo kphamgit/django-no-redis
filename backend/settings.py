@@ -309,8 +309,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5175", 
     "http://localhost:5173",
     'https://phuyenenglish.com',
-    'https://www.phuyenenglish.com',
-    "https://wwww.tienganhphuyen.com",
+    'https://www.phuyenenglish.com',   # in HEROKU, need this to avoid error when connecting web socket with wss. Feb 4, 2026, kpham
+    "https://wwww.tienganhphuyen.com", 
     "https://tienganhphuyen.com",
     "https://wwww.kevinphamenglish.com",
     "https://kevinphamenglish.com",
