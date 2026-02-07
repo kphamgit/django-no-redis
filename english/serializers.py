@@ -12,17 +12,21 @@ class QuestionSerializer(serializers.ModelSerializer):
         #fields = '__all__'
         
 
+
+        
+"""
 class QuizSerializer(serializers.ModelSerializer):
+    video_segments = VideoSegmentSerializer(many=True, read_only=True)  # Use the nested serializer
+
     class Meta:
         model = Quiz
-        #fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
-        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
-        
-        extra_kwargs = {
-           "questions": {"required": False}  # Make the "questions" field optional
-        }
-        
+        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions", "video_segments"]
 
+        extra_kwargs = {
+           "questions": {"required": False},  # Make the "questions" field optional
+           "video_segments": {"required": False}  # Make the "video_segments" field optional
+        }
+"""
 
 class UnitSerializer(serializers.ModelSerializer):
     #quizzes = QuizSerializer(many=True, read_only=True)
@@ -58,10 +62,23 @@ class VideoSegmentSerializer(serializers.ModelSerializer):
     def get_question_numbers(self, obj):     # will be automatically called to get the value for question_numbers
         # Generate the question_numbers string
         question_numbers = ', '.join(
-            str(question.question_number) for question in obj.video_segment_questions.all()
+            #str(question.question_number) for question in obj.video_segment_questions.all()
+            str(question.id) for question in obj.video_segment_questions.all()
         )
         return question_numbers
         
+class QuizSerializer(serializers.ModelSerializer):
+    video_segments = VideoSegmentSerializer(many=True, read_only=True)  # Use the nested serializer
+    class Meta:
+        model = Quiz
+        #fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
+        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions", "video_segments"]
+        
+        extra_kwargs = {
+           "questions": {"required": False},  # Make the "questions" field optional
+           "video_segments": {"required": False}  # Make the "video_segments" field optional
+        }
+
 class VideoSegmentIdSerializer(serializers.ModelSerializer):
     class Meta:
         model = VideoSegment

@@ -7,7 +7,7 @@ from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
      UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer
 from english.serializers import QuestionSerializer 
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -53,16 +53,16 @@ class QuizDetailView(generics.RetrieveAPIView):
         return Quiz.objects.all().prefetch_related('video_segments')
     
 class UnitListView(generics.ListAPIView):
+    print("****** UnitListView called")
     serializer_class = UnitWithQuizzesSerializer
     permission_classes = [IsAuthenticated]
     #permission_classes = [AllowAny]
     
-
     def get_queryset(self):
         category_id = self.kwargs.get('category_id')
         queryset = Unit.objects.filter(category_id=category_id).order_by('unit_number')
         #print("UnitListView, Filtered Units no Prefetch:", queryset)
-        #print("UnitListView, SQL Query:", queryset.query)  # Debugging SQL query
+        print("****** UnitListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
    
 @api_view(["GET"])
@@ -76,10 +76,34 @@ def get_question_by_number(request, quiz_id, question_number):
         return Response({
             "error": "Question not found for the given quiz_id and question_number."
         }, status=404)
-        
-            
+    
+    
 @api_view(["POST"])
-def create_quiz_attempt(request, pk):
+def create_video_quiz_attempt(request):
+        """
+            Create a QuizAttempt for the given quiz and user (used only in TakeVideoQuiz)
+        """
+        
+        print("create_quiz_attempt called with request.data:", request.data)
+      
+        quiz_id = request.data.get('quiz_id', None)
+        
+        quiz_attempt  = QuizAttempt.objects.create(
+            user_name=request.data['user_name'],
+            quiz_id=quiz_id,
+            completion_status="uncompleted",
+            
+        )
+            #print("***** New QuizAttempt created.")
+        serializer = QuizAttemptSerializer(quiz_attempt)
+            #print(" QQQQQQQQQQQ QuizAttempt created:", serializer.data)
+        return Response({
+                "quiz_attempt": serializer.data,
+                "created": True,
+            })
+                    
+@api_view(["POST"])
+def get_or_create_quiz_attempt(request, pk):
         """
             Create or retrieve a QuizAttempt for the given quiz and user.
         """
@@ -321,6 +345,64 @@ def process_live_question_attempt(request):
         }, status=500)
 
 @api_view(["POST"])
+def process_video_question_attempt(request, pk):
+    #print("process_video_question_attempt called for question_attempt id:", pk, " request.data:", request.data)
+    try: 
+        # retrieve 
+        active_segment_question_ids = request.data.get('active_segment_question_ids', [])
+        #print(" active_segment_question_ids received in request data:", active_segment_question_ids)
+        #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        
+        #print(" process_question_attempt, assessment_results:", assessment_results)
+        error_flag = assessment_results.get('error_flag', True)
+        
+        score = 0 if error_flag else 5
+        # request.data: {'user_answer': 'test answer', "answer_key": "correct answer"}
+       
+        question_attempt = QuestionAttempt.objects.get(id=pk)
+        quiz_attempt = question_attempt.quiz_attempt
+        
+        # calculate score for quiz_attempt
+        quiz_attempt.score = quiz_attempt.score + score
+        
+        # get next question
+        next_question_number = question_attempt.question.question_number + 1
+            #print(" Next question number FOUND (if not, then it's an error):", next_question_number)
+            # get the question in database based on next_question_number and quiz_id
+        next_question = Question.objects.filter(quiz_id=question_attempt.quiz_attempt.quiz_id, question_number=next_question_number).first()
+        if not next_question:
+            # end of quiz
+            quiz_attempt.completion_status = "completed"
+            quiz_attempt.save()
+            return Response({
+                    "assessment_results": assessment_results,
+                    "quiz_attempt": { "completed": True, "score": quiz_attempt.score  }
+            })
+            
+       
+        # NOT END of quiz, if next_question.id doesn't belong to active_segment_question_ids then print out a warning
+        if str(next_question.id) not in active_segment_question_ids:
+            #print(" next question id doesn't belong to this segment. Return assessment results without next question id to client, and print a warning in the console.")
+            return Response({
+                    "assessment_results": assessment_results,
+                    "quiz_attempt": { "completed": True, "score": quiz_attempt.score  }
+                   
+                })
+        else:
+            #print("next question belongs to segment, return results with next_questionId.....=", next_question.id, " returns it to client")
+            return Response({
+                    "assessment_results": assessment_results,
+                    "quiz_attempt": { "completed": True, "score": quiz_attempt.score  },
+                    "next_question_id": next_question.id
+                })
+
+    except QuestionAttempt.DoesNotExist:
+        return Response({
+            "error": "Question attempt not found."
+        }, status=404)
+
+@api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
@@ -330,7 +412,8 @@ def process_question_attempt(request, pk):
         error_flag = assessment_results.get('error_flag', True)
         
         score = 0 if error_flag else 5
-        # request.data: {'user_answer': 'test answer', "answer_key": "correct answer"}
+        # question attempt for this question should have been created.
+        # look for create_next_question_attempt in the frondend code (TakeQuiz.tsx)
         question_attempt = QuestionAttempt.objects.get(id=pk)
         
         question_attempt.error_flag = error_flag

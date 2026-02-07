@@ -128,7 +128,6 @@ class QuestionCreateView(generics.ListCreateAPIView):
 
     #fields = ["id", "unit_id", "name", "quiz_number", "questions"]
 class QuizCreateView(generics.ListCreateAPIView):
-    print("QuizCreateView called")
     serializer_class = QuizSerializer
     permission_classes = [IsAuthenticated]
 
