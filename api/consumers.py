@@ -33,10 +33,26 @@ class ChatroomConsumer(WebsocketConsumer):
         self.accept()
 
       # Add the user to the cache
-        #print(" new user connected")
-        #print(" current users in cache before adding:", cache.get("students_room_users", set()))
-        #print("Adding user to cache:", self.user_name)
-        self.add_user_to_cache(self.user_name)
+        print(" new user connected")
+        print(" current connected users ")
+        connected_users = cache.get("students_room_users", set())
+        print(" current users in cache before adding:", connected_users)
+        print("Adding user to cache:", self.user_name)
+        
+        if self.user_name in connected_users:
+            print("User already in connected users:", self.user_name)
+        else:
+            #print("User not in connected users. Adding user:", user_name)
+            connected_users.add(self.user_name) # add the new user if not already present
+            # if present, python set will ignore duplicate
+            #print("Finish adding user. Now, connected_users:", connected_users)
+            #print(" Setting updated connected users in cache.")
+            cache.set("students_room_users", connected_users, timeout=None)
+        
+         # get the updated list and print
+            #updated_users = cache.get("students_room_users", set())
+        
+        #self.add_user_to_cache(self.user_name)
 
         # Join room group
         async_to_sync(self.channel_layer.group_add)(
@@ -44,7 +60,7 @@ class ChatroomConsumer(WebsocketConsumer):
             self.channel_name    # channel_name is automatically generated and is unique for each connection
         )
 
-        connected_users = cache.get("students_room_users", set())   
+        #connected_users = cache.get("students_room_users", set())   
         connected_users_list = list(connected_users)
         
         # remove self.user_name from the list (to use as other connected users in message below)
@@ -74,12 +90,18 @@ class ChatroomConsumer(WebsocketConsumer):
         # # (live quiz_id and question number (for this user))
         
         live_quiz_id = cache.get("live_quiz_id", None)
-        #print(" checking recovery, quiz_id from cache:", quiz_id)
+        print(" checking recovery, quiz_id from cache:", live_quiz_id if live_quiz_id else "No live quiz id in cache")
         live_question_number_key = self.user_name + '_live_question_number'
-        #print(" checking recovery, live_question_number_key:", live_question_number_key)
+        print(" checking recovery, live_question_number_key:", live_question_number_key if live_question_number_key else "No live question number key for this user")
         live_question_number = cache.get(live_question_number_key)
+        print(" checking recovery, live_question_number:", live_question_number)
+        live_total_score_key = self.user_name + '_total_score'  
+        print(" checking recovery, live_total_score_key:", live_total_score_key)
+        live_total_score = cache.get(live_total_score_key, None)    
+        print(" checking recovery, live_total_score from cache:", live_total_score)    
         # both quiz_id and live_question_number are present
-        if live_quiz_id and live_question_number:
+        if live_quiz_id and live_question_number and live_total_score:
+            print(" 1) Recovery info found for user", self.user_name,)
             async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
@@ -88,11 +110,13 @@ class ChatroomConsumer(WebsocketConsumer):
                 "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
                 "live_quiz_id": live_quiz_id,
-                "live_question_number": live_question_number
+                "live_question_number": live_question_number,
+                "live_total_score": live_total_score,
             },
             )
-        elif live_quiz_id:   # live quiz is ongoing but there's no live_question_number for this user 
-                   async_to_sync(self.channel_layer.group_send)(
+        elif live_quiz_id and live_question_number:
+            print(" 3) Recovery info found for user", self.user_name,)
+            async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
                 "type": "send_connection_establish_message_handler",   # name of event handler method
@@ -100,6 +124,33 @@ class ChatroomConsumer(WebsocketConsumer):
                 "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
                 "live_quiz_id": live_quiz_id,
+                "live_question_number": live_question_number,
+            },
+            )
+        elif live_quiz_id and live_total_score:   # live quiz is ongoing but there's no live_question_number for this user 
+            print(" 3) Recovery info found for user", self.user_name,)
+            async_to_sync(self.channel_layer.group_send)(
+            self.room_group_name,
+            {
+                "type": "send_connection_establish_message_handler",   # name of event handler method
+                "message_type": "connection_established",
+                "user_name": self.user_name,
+                "other_connected_users": connected_users_list,
+                "live_quiz_id": live_quiz_id,
+                "live_total_score": live_total_score,
+            },
+            )
+        elif live_quiz_id:   # live quiz is ongoing but there's no live_question_number for this user 
+            print(" 3) Recovery info found for user", self.user_name,)
+            async_to_sync(self.channel_layer.group_send)(
+            self.room_group_name,
+            {
+                "type": "send_connection_establish_message_handler",   # name of event handler method
+                "message_type": "connection_established",
+                "user_name": self.user_name,
+                "other_connected_users": connected_users_list,
+                "live_quiz_id": live_quiz_id,
+                "live_total_score": live_total_score,
             },
             )
         else:   # no live_quiz
@@ -121,7 +172,8 @@ class ChatroomConsumer(WebsocketConsumer):
             "user_name": event["user_name"],
             "other_connected_users": event["other_connected_users"],
             "live_quiz_id": event.get("live_quiz_id", None),
-            "live_question_number": event.get("live_question_number", None)
+            "live_question_number": event.get("live_question_number", None),
+            "live_total_score": event.get("live_total_score", None),
         }))
 
     def send_connection_dropped_message_handler(self, event): # event handler method
@@ -133,10 +185,11 @@ class ChatroomConsumer(WebsocketConsumer):
  
 
     def add_user_to_cache(self, user_name):
-        #print("Trying to add user to cache. User :", user_name)
+        print("Trying to add user to cache. User :", user_name)
         """
         Add a user to the cache for connected users.
         """
+        #students_room_users
         connected_users = cache.get("students_room_users", set())
         #print("Current connected users from cache:", connected_users)
         if user_name in connected_users:
@@ -207,6 +260,9 @@ class ChatroomConsumer(WebsocketConsumer):
             for user in users_in_room:
                 cache.delete(f"{user}_live_question_number")
                 
+            for user in users_in_room:
+                cache.delete(f"{user}_total_score")
+                
             # send message to all users in the room that live quiz has been terminated
             async_to_sync(self.channel_layer.group_send)(
                 self.room_group_name,
@@ -254,10 +310,38 @@ class ChatroomConsumer(WebsocketConsumer):
             
         elif message_type == "live_score":
             #print(" ************ live_score message received for user", source_user, " score:", message)
+            # if total_score is none, initialize it to this score
+            total_score_key = f"{source_user}_total_score"
+            print(" Checking total score for user", source_user, " in cache with key:", total_score_key)
+            total_score = cache.get(total_score_key, None)
+            if total_score is None:
+                print(" Total score for user", source_user, " is not present in cache. Initializing to:", message)
+                cache.set(total_score_key, message, timeout=None)
+            else:
+                # if total_score is already present, add the new score to total_score and update cache
+                print(" Total score for user", source_user, " found in cache. Current total score:", total_score)
+                total_score = int(total_score) + int(message)
+                cache.set(total_score_key, total_score, timeout=None)
+                
             # delete live_question_number for the source_user now that the user's finished the question
             key_to_live_question_number = f"{source_user}_live_question_number"
             #print(" Deleting key:", key_to_live_question_number)
             cache.delete(key_to_live_question_number)
+            
+            print(" Updated total score for user", source_user, " is:", cache.get(total_score_key, None))
+            
+            async_to_sync(self.channel_layer.group_send)(    # triggers an event handler method
+            self.room_group_name,
+            {
+                "type": "send_message_handler",   # name of event handler method
+                "message_type": message_type,
+                "message": message + ":" + str(cache.get(total_score_key, None)) ,     # the 'message' key will be passed to the event handler method
+                "user_name": source_user,
+            },
+            )
+            
+            return  # no need to relay to group further
+        
             
         # Relay message to room group
         # when the group_send is called, the chat_message event handler method is triggered
