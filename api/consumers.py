@@ -73,13 +73,13 @@ class ChatroomConsumer(WebsocketConsumer):
         # or when user is late to live quiz session
         # # (live quiz_id and question number (for this user))
         
-        quiz_id = cache.get("quiz_id", None)
+        live_quiz_id = cache.get("live_quiz_id", None)
         #print(" checking recovery, quiz_id from cache:", quiz_id)
         live_question_number_key = self.user_name + '_live_question_number'
         #print(" checking recovery, live_question_number_key:", live_question_number_key)
         live_question_number = cache.get(live_question_number_key)
         # both quiz_id and live_question_number are present
-        if quiz_id and live_question_number:
+        if live_quiz_id and live_question_number:
             async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
@@ -87,11 +87,11 @@ class ChatroomConsumer(WebsocketConsumer):
                 "message_type": "connection_established",
                 "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
-                "live_quiz_id": quiz_id,
+                "live_quiz_id": live_quiz_id,
                 "live_question_number": live_question_number
             },
             )
-        elif quiz_id:   # live quiz is ongoing but there's no live_question_number for this user 
+        elif live_quiz_id:   # live quiz is ongoing but there's no live_question_number for this user 
                    async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
@@ -99,7 +99,7 @@ class ChatroomConsumer(WebsocketConsumer):
                 "message_type": "connection_established",
                 "user_name": self.user_name,
                 "other_connected_users": connected_users_list,
-                "live_quiz_id": quiz_id,
+                "live_quiz_id": live_quiz_id,
             },
             )
         else:   # no live_quiz
@@ -195,7 +195,7 @@ class ChatroomConsumer(WebsocketConsumer):
         # and also clear all question_number entries for users in the room"
         if message_type == "terminate_live_quiz":
             #print(" ************ terminate_live_quiz message received. Clearing quiz_id and question numbers from cache.")
-            cache.delete("quiz_id")
+            cache.delete("live_quiz_id")
             # also delete all entries ending with _live_question_number for users in the room
             users_in_room = cache.get("students_room_users", set())
             for user in users_in_room:
@@ -206,7 +206,19 @@ class ChatroomConsumer(WebsocketConsumer):
             users_in_room = cache.get("students_room_users", set())
             for user in users_in_room:
                 cache.delete(f"{user}_live_question_number")
+                
+            # send message to all users in the room that live quiz has been terminated
+            async_to_sync(self.channel_layer.group_send)(
+                self.room_group_name,
+                {
+                    "type": "send_message_handler",   # name of event handler method
+                    "message_type": "live_quiz_terminated",
+                    "message": "Live quiz has been terminated by the instructor.",
+                    "user_name": source_user,
+                },
+            )
        
+            return  # no need to relay to group further
      
            # handle cache query message type from client
         if message_type == "cache_query":
@@ -230,11 +242,11 @@ class ChatroomConsumer(WebsocketConsumer):
             return  # no need to relay to group
      
         # if message_type is 'quiz_id', save it to cache
-        if message_type == "quiz_id":
-            cache.set("quiz_id", message, timeout=None)   # message is quiz_id value
+        if message_type == "live_quiz_id":
+            cache.set("live_quiz_id", message, timeout=None)   # message is quiz_id value
             # if message_type is 'question_number', find the user in "students_room_users" and save question_number to cache
             #
-        elif message_type == "live_question_attempt_started":
+        elif message_type == "student_acknowleged_live_question_number":
             users_in_room = cache.get("students_room_users", set())
             #print(" ************ live_question_attempt_started message received for user", source_user, " question:", message)
             if source_user in users_in_room:
@@ -263,7 +275,7 @@ class ChatroomConsumer(WebsocketConsumer):
   
         
     def send_message_handler(self, event): # event handler method
-        #print("Event received in send_message_handler:", event)
+        #print("******** Event received in send_message_handler:", event)
         #message = event["message"]   # get value of 'message' key from event dict
         self.send(text_data=json.dumps({
             "message_type": event["message_type"],
