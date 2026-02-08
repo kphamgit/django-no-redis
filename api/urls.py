@@ -5,6 +5,9 @@ from django.http import JsonResponse
 #/api/quizzes/${quizId}/questions/${questionNumber}/`)
 
 urlpatterns = [
+    
+    path('send-notification/', views.send_notification, name='send_notification'),
+    
     path("levels/", views.level_list, name="level-list"),
     path("categories/<int:category_id>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("quizzes/<int:pk>/", views.QuizDetailView.as_view(), name="quiz-detail"),  # pk is quiz_id

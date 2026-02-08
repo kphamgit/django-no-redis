@@ -19,7 +19,6 @@ import ssl
 import os
 import urllib.parse
 
-from decouple import config, Csv
 
 load_dotenv()
 
@@ -32,51 +31,32 @@ print("BASE_DIR:", BASE_DIR)
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
-SECRET_KEY = config('SECRET_KEY', default='unsafe-secret-key-for-dev-only')
+SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
+# SECRET_KEY = config('SECRET_KEY', default='unsafe-secret-key-for-dev-only')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True
-DEBUG = config('DEBUG', default=False, cast=bool)
+# DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
 
 # allow any host to host our django app
 # will change this in production to specific domain names ...herokuapp.com, etc.
 #ALLOWED_HOSTS = ["*"]
 #ALLOWED_HOSTS = ["kpbackend-423a8e253858.herokuapp.com", "127.0.0.1", "localhost"]
 #
-"""
-ALLOWED_HOSTS = ["django-with-redis-c6f7d6ccaf6e.herokuapp.com", 
-                 "127.0.0.1", "localhost",
-                 'magnificent-figolla-d3b835.netlify.app', # Add your frontend domain!
-                 'tienganhphuyen.com',
-                 'phuyenenglish.com',
-                 'www.phuyenenglish.com',
-                 'wwww.tienganhphuyen.com',
-                 ]
-"""
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
+
+#ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost').split(',')
 #print ALLOWED_HOSTS (which comes from .env) for debugging
-print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
+#print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
-"""
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5174",  # Your frontend's origin
-    "http://localhost:5175", 
-    "http://localhost:5173",
-    "https://magnificent-figolla-d3b835.netlify.app",  # Your frontend domain
-    "https://wwww.tienganhphuyen.com",
-    "https://tienganhphuyen.com",
-    "https://wwww.kevinphamenglish.com",
-    "https://kevinphamenglish.com",
-]
-"""
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+# ('CORS_ALLOWED_ORIGINS', cast=Csv())
 
 # Application definition
 
 INSTALLED_APPS = [
-    'daphne',
     'api.apps.ApiConfig',
     'english.apps.EnglishConfig',
     'django.contrib.admin',
@@ -137,140 +117,7 @@ TEMPLATES = [
 
 
 
-#WSGI_APPLICATION = 'backend.wsgi.application'
-ASGI_APPLICATION = "backend.asgi.application"
-
-# Fallback to local Redis if REDIS_URL environment variable isn't set
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
-
-# Parse the URL to check the protocol
-url = urllib.parse.urlparse(REDIS_URL)
-#print("Parsed REDIS_URL:", url)
-#print(" Scheme:", url.scheme)
-#print("REDIS_URL:", REDIS_URL)
-# 3. Configure CHANNEL_LAYERS to use Redis
-"""
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [REDIS_URL],  # Use the REDIS_URL directly
-            "redis_config": {
-                "ssl_cert_reqs": None, # Disables SSL certificate verification
-            }
-        },
-    },
-}
-"""
-
-import os
-import urllib.parse
-
-# 1. Parse the Redis URL provided by Heroku
-#redis_url = urllib.parse.urlparse(os.environ.get('REDIS_URL'))
-
-"""
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [{
-                "address": REDIS_URL,
-                # Use SSL settings ONLY if the protocol is 'rediss'
-                "ssl_cert_reqs": None if url.scheme == "rediss" else None,
-            }],
-        },
-    },
-}
-
-print("CHANNEL_LAYERS:", CHANNEL_LAYERS)
-"""
-
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1')
-url = urllib.parse.urlparse(REDIS_URL)
-
-# --- Base Redis Configuration ---
-# Use db 0 for Cache, db 1 for Channels
-cache_url = f"{REDIS_URL}/0"
-channels_url = f"{REDIS_URL}/1"
-
-# SSL Logic (Same as we did for Channel Layers)
-ssl_options = {}
-if url.scheme == 'rediss':
-    ssl_options = {"ssl_cert_reqs": None}
-
-# --- 1. CHANNEL_LAYERS Configuration ---
-
-
-print("CACHES using REDIS_URL:", REDIS_URL)
-print("URL scheme:", url.scheme)
-
-
-
-is_ssl = url.scheme == 'rediss'
-
-print("Is SSL required for Redis connections?", is_ssl)
-
-# 2. Configure CACHES (Standard Django Cache)
-# Use Heroku's URL if available, otherwise fallback to local Redis
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
-
-import os
-
-# Create the base cache config
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {}
-    }
-}
-
-# Only add SSL bypass if we are using an 'rediss' (SSL) URL
-if REDIS_URL.startswith('rediss'):
-    CACHES["default"]["OPTIONS"]["ssl_cert_reqs"] = None
-
-# 3. Configure CHANNEL_LAYERS (Django Channels / WebSockets)
-"""
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
-        "CONFIG": {
-            "hosts": [REDIS_URL],
-            # Channels uses an SSL Context object rather than raw kwargs
-            "ssl_context": ssl._create_unverified_context() if is_ssl else None,
-        },
-    },
-}
-"""
-
-# We append the ssl_cert_reqs=none parameter directly to the URL 
-# only if it's a production rediss:// URL
-RAW_REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379')
-print("RAW_REDIS_URL:", RAW_REDIS_URL)
-
-if RAW_REDIS_URL.startswith('rediss://'):
-    # This adds the query parameter that tells the redis client to skip verification
-    if "?" in RAW_REDIS_URL:
-        CHANNEL_REDIS_URL = f"{RAW_REDIS_URL}&ssl_cert_reqs=none"
-    else:
-        CHANNEL_REDIS_URL = f"{RAW_REDIS_URL}?ssl_cert_reqs=none"
-else:
-    CHANNEL_REDIS_URL = RAW_REDIS_URL
-
-print("CHANNEL_REDIS_URL:", CHANNEL_REDIS_URL)
-
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
-        "CONFIG": {
-            "hosts": [CHANNEL_REDIS_URL],
-        },
-    },
-}
-
-
-
+WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
@@ -330,7 +177,7 @@ CORS_ALLOW_METHODS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://django-with-redis-c6f7d6ccaf6e.herokuapp.com',
+    'https://kp-ws-redis-7c251d3f5802.herokuapp.com/',
     'https://phuyenenglish.com',
     'https://www.phuyenenglish.com',
     'https://tienganhphuyen.com',

@@ -11,8 +11,44 @@ from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, V
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
+import redis
 
 from rest_framework.response import Response
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+import json
+from django.utils.decorators import method_decorator
+
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+import json as JSON
+
+@csrf_exempt
+@require_POST
+def send_notification(request):
+    try:
+        # Parse the JSON payload
+        print("send_notification called with request.body:", request.body)
+        data = json.loads(request.body)
+        message = json.dumps(data.get('message', ''))  # Convert message to JSON string
+        print("Message to send:", message)
+
+
+        if not message:
+            return JsonResponse({'error': 'Message is required'}, status=400)
+
+        # Publish the message to the "notifications" channel
+        # look in the nodejs server (with Redis) code to see how the message is 
+        # consumed from the notifications channel and sent to clients via websocket
+        redis_client.publish('notifications', message)
+
+        return JsonResponse({'status': 'Message sent to notifications channel'})
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON payload'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
 
 class CreateUserView(generics.CreateAPIView):
     queryset = User.objects.all()
