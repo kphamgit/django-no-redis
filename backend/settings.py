@@ -19,6 +19,7 @@ from decouple import config, Csv
 
 
 import os
+import redis
 
 
 load_dotenv()  # load all environment variables from .env file (or on Heroku for production) into the process environment
@@ -122,15 +123,19 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-"""
-DATABASES = {
-    'default': dj_database_url.config(env='DATABASE_URL',
-        default='postgres://kevinpham:ttrami120110@localhost:5432/fullstack1',
-        conn_max_age=600,  # Optional: enable connection pooling
-        ssl_require=False  # Set to True if your production database requires SSL
+# Get the URL from Heroku environment
+REDIS_URL = os.environ.get('REDIS_URL')
+
+if REDIS_URL:
+    # On Heroku, we need to disable SSL certificate verification
+    # because Heroku uses self-signed certificates.
+    R_CONN = redis.from_url(
+        REDIS_URL, 
+        ssl_cert_reqs=None
     )
-}
-"""
+else:
+    # Fallback for local development
+    R_CONN = redis.Redis(host='localhost', port=6379, db=0)
 
 DATABASES = {
     'default': dj_database_url.config(
