@@ -125,7 +125,22 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Get the URL from Heroku environment
 REDIS_URL = os.environ.get('REDIS_URL')
+print("REDIS_URL:", REDIS_URL)
+# redis://localhost:6379/0
+# if REDIS_URL has a 'localhost' string,  don't ssl_cert_que
+if REDIS_URL and 'rediss' in REDIS_URL:  # if REDIS_URL is defined and uses rediss:// scheme, then it's likely a production environment that requires SSL
+      R_CONN = redis.StrictRedis.from_url(
+        REDIS_URL, 
+        decode_responses=True,
+        ssl_cert_reqs=None
+    )
+else:   # development environment, or production environment that doesn't require SSL (e.g. Redis Cloud with TLS disabled)
+     R_CONN = redis.StrictRedis.from_url(
+        REDIS_URL, 
+        decode_responses=True,
+    )
 
+"""
 if REDIS_URL:
     # On Heroku, we need to disable SSL certificate verification
     # because Heroku uses self-signed certificates.
@@ -137,6 +152,7 @@ if REDIS_URL:
 else:
     # Fallback for local development
     R_CONN = redis.Redis(host='localhost', port=6379, db=0)
+"""
 
 DATABASES = {
     'default': dj_database_url.config(
