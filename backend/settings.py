@@ -14,13 +14,12 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 from dotenv import load_dotenv
-import ssl
+
 
 import os
-import urllib.parse
 
 
-load_dotenv()
+load_dotenv()  # load all environment variables from .env file (or on Heroku for production) into the process environment
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -122,13 +121,24 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+"""
 DATABASES = {
-    'default': dj_database_url.config(env='DATABASE_CONNECTION_POOL_URL',
+    'default': dj_database_url.config(env='DATABASE_URL',
         default='postgres://kevinpham:ttrami120110@localhost:5432/fullstack1',
         conn_max_age=600,  # Optional: enable connection pooling
         ssl_require=False  # Set to True if your production database requires SSL
     )
 }
+"""
+
+DATABASES = {
+    'default': dj_database_url.config(
+        default='postgres://kevinpham:ttrami120110@localhost:5432/fullstack1',
+        conn_max_age=600,  # Optional: enable connection pooling
+        ssl_require=False  # Set to True if your production database requires SSL
+    )
+}
+
 
 #print("DATABASE URL in use:", os.getenv('DATABASE_CONNECTION_POOL_URL', 'Default DATABASE_URL'))
 #print("Database configuration:", DATABASES['default'])
