@@ -20,13 +20,20 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
 from django.utils.decorators import method_decorator
+import os
 
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+# redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 import json as JSON
+
+# Use REDIS_URL from environment variables
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')  # Default to localhost for development
+print("Connecting to Redis at URL:", REDIS_URL)
+redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
 
 @csrf_exempt
 @require_POST
 def send_notification(request):
+    print("send_notification endpoint hit request", request)
     try:
         # Parse the JSON payload
         print("send_notification called with request.body:", request.body)
