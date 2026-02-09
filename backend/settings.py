@@ -15,6 +15,8 @@ from datetime import timedelta
 import dj_database_url
 from dotenv import load_dotenv
 
+from decouple import config, Csv
+
 
 import os
 
@@ -30,13 +32,13 @@ print("BASE_DIR:", BASE_DIR)
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
-# SECRET_KEY = config('SECRET_KEY', default='unsafe-secret-key-for-dev-only')
+# SECRET_KEY = 'django-insecure-b3m=h8+s34wjn@z068ppzswtpm8ujo#ix7(*h$=tdcfa+wvbs-'
+SECRET_KEY = config('SECRET_KEY', default='unsafe-secret-key-for-dev-only')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True
 # DEBUG = config('DEBUG', default=False, cast=bool)
-DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 # allow any host to host our django app
 # will change this in production to specific domain names ...herokuapp.com, etc.
@@ -45,12 +47,11 @@ DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
 #
 
 
-#ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost').split(',')
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 #print ALLOWED_HOSTS (which comes from .env) for debugging
-#print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
+print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+CORS_ALLOWED_ORIGINS =  config('CORS_ALLOWED_ORIGINS', cast=Csv())
 # ('CORS_ALLOWED_ORIGINS', cast=Csv())
 
 # Application definition
