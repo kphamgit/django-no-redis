@@ -11,7 +11,9 @@ from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, V
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
-import redis
+from django.conf import settings
+
+#import redis
 
 from rest_framework.response import Response
 
@@ -26,9 +28,11 @@ import os
 import json as JSON
 
 # Use REDIS_URL from environment variables
+"""
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')  # Default to localhost for development
 print("Connecting to Redis at URL:", REDIS_URL)
 redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
+"""
 
 @csrf_exempt
 @require_POST
@@ -48,7 +52,8 @@ def send_notification(request):
         # Publish the message to the "notifications" channel
         # look in the nodejs server (with Redis) code to see how the message is 
         # consumed from the notifications channel and sent to clients via websocket
-        redis_client.publish('notifications', message)
+        # redis_client.publish('notifications', message)
+        settings.R_CONN.publish('notifications', message)
 
         return JsonResponse({'status': 'Message sent to notifications channel'})
     except json.JSONDecodeError:

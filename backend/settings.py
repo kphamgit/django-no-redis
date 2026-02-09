@@ -129,8 +129,9 @@ REDIS_URL = os.environ.get('REDIS_URL')
 if REDIS_URL:
     # On Heroku, we need to disable SSL certificate verification
     # because Heroku uses self-signed certificates.
-    R_CONN = redis.from_url(
+    R_CONN = redis.StrictRedis.from_url(
         REDIS_URL, 
+        decode_responses=True,
         ssl_cert_reqs=None
     )
 else:
