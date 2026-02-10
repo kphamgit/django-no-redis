@@ -42,10 +42,15 @@ def send_notification(request):
         # Parse the JSON payload
         print("send_notification called with request.body:", request.body)
         data = json.loads(request.body)
-        message = json.dumps(data.get('message', ''))  # Convert message to JSON string
-        print("Message to send:", message)
+        # message = json.dumps(data.get('message', ''))  # Convert message to JSON string
+        message = json.dumps(data)  # Convert entire data to JSON string
+        print("Message to send with notification:", message)
 
-
+        #testJson = {"message_type": "chat", "content": "Hello, this is a test notification!"}
+        # testPythonDict = {"message_type": "quiz_id", "content": "1"}  # a python dictionary
+        #that needs to be converted to a JSON string before being sent to the Redis channel, so that the Node.js server can parse it correctly and send it to the right clients based on the message_type
+        #message = json.dumps(testPythonDict)  # Convert entire data to JSON string
+        
         if not message:
             return JsonResponse({'error': 'Message is required'}, status=400)
 
@@ -54,6 +59,10 @@ def send_notification(request):
         # consumed from the notifications channel and sent to clients via websocket
         # redis_client.publish('notifications', message)
         settings.R_CONN.publish('notifications', message)
+        
+        # save the message to a Redis list for record-keeping (optional)
+        # settings.R_CONN.lpush('notifications_history', message)
+        # settings.R_CONN.publish('notifications',json.dumps(testJson))
 
         return JsonResponse({'status': 'Message sent to notifications channel'})
     except json.JSONDecodeError:
@@ -379,10 +388,19 @@ def process_live_question_attempt(request):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
-        #print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
+        print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
         """
          {'error_flag': False, 'score': 10, 'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
         """
+        test_data = {'score': 10, 'user_name': 'test_user'}
+        message = json.dumps(test_data)  # Convert entire data to JSON string
+        print("Message to send:", message)
+        # notify Redis channel 
+        #settings.R_CONN.publish('notifications', message)
+        # settings.R_CONN.publish('notifications',json.dumps(testJson))
+
+        #return JsonResponse({'status': 'Message sent to notifications channel'})
+        
         return Response({
             "assessment_results": assessment_results,
         })
@@ -471,7 +489,14 @@ def process_question_attempt(request, pk):
         question_attempt.completed = True
         question_attempt.save()
         
-        
+       
+        """
+         
+        test_data = {'score': 10, 'user_name': 'test_user'}
+        message = json.dumps(test_data)  # Convert entire data to JSON string
+        print("Message to send:", message)
+        settings.R_CONN.publish('notifications', message)
+        """
         quiz_attempt = question_attempt.quiz_attempt
         # calculate score for quiz_attempt
         quiz_attempt.score = quiz_attempt.score + score
