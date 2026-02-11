@@ -39,18 +39,20 @@ redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
 def send_notification(request):
     print("send_notification endpoint hit request", request)
     try:
-        # Parse the JSON payload
+        # Parse the JSON payload (remember request.body is ALWAYS in JSON string format,
+        # so you need to json.loads it to convert it to a Python dict before you can access its fields)
         print("send_notification called with request.body:", request.body)
         data = json.loads(request.body)
-        # message = json.dumps(data.get('message', ''))  # Convert message to JSON string
+       
+        # since Redis only accepts JSON strings, we have to convert the request.body back to a JSON string.
+        # you don't want to send a request.body directly without this ROUNDABOUT converting process, 
+        # because request.body is a JSON string, and if you send it directly to Redis, 
+        # it will be treated as a plain string, not a JSON object, and the Node.js server won't be able 
+        # to parse it correctly to access the message_type field and route the notification to the right clients.
+        
         message = json.dumps(data)  # Convert entire data to JSON string
         print("Message to send with notification:", message)
 
-        #testJson = {"message_type": "chat", "content": "Hello, this is a test notification!"}
-        # testPythonDict = {"message_type": "quiz_id", "content": "1"}  # a python dictionary
-        #that needs to be converted to a JSON string before being sent to the Redis channel, so that the Node.js server can parse it correctly and send it to the right clients based on the message_type
-        #message = json.dumps(testPythonDict)  # Convert entire data to JSON string
-        
         if not message:
             return JsonResponse({'error': 'Message is required'}, status=400)
 
@@ -134,6 +136,34 @@ def get_question_by_number(request, quiz_id, question_number):
             "error": "Question not found for the given quiz_id and question_number."
         }, status=404)
     
+@api_view(["POST"])
+def get_question_by_number_live(request, quiz_id, question_number):
+    #print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
+    # request.data contains user_name, retrieve it
+    user_name = request.data.get('user_name', 'anonymous')
+    try:
+        question = Question.objects.get(quiz_id=quiz_id, question_number=question_number)
+        # use setting.R_CONN to publish a notification to Redis channel to notify clients 
+        # a user has retrieved a question, and include the question number and user_name in the notification
+        # predent user_name to the string "_live_question_number" 
+        # and save to Redis store for bootstrap purpose when user first logs in during a live quiz session, so that the frontend can retrieve the latest live question number and display the correct question to the user when they log in or refresh the page during a live quiz session
+       
+        key = f"{user_name}_live_question_number"
+        settings.R_CONN.set(key, question_number)
+        
+        # nofity clients (users) via Redis channel
+        settings.R_CONN.publish('notifications', json.dumps({
+            "message_type": "live_question_retrieved",
+            "content": question.question_number,
+            "user_name": user_name,
+        }))
+        
+        serializer = QuestionSerializer(question)
+        return Response(serializer.data)
+    except Question.DoesNotExist:
+        return Response({
+            "error": "Question not found for the given quiz_id and question_number."
+        }, status=404)
     
 @api_view(["POST"])
 def create_video_quiz_attempt(request):
@@ -307,6 +337,70 @@ def continue_quiz_attempt(request, pk):
         }, status=404)
         
 @api_view(["GET"])
+def start_live_quiz(request, pk):
+    try:
+        quiz = Quiz.objects.get(id=pk)
+        # send a notification to Redis channel to notify clients 
+        settings.R_CONN.publish('notifications', json.dumps({
+            "message_type": "live_quiz_id",
+            "content": pk,
+            "quiz_name": quiz.name,
+        }))
+        
+        # use R_CONN from settings.py to persist live quiz id to Redis store
+        # (for recovery purposes in case in case user drops connection and reconnects later
+        # or is logged in during a live quiz session)
+        settings.R_CONN.set('live_quiz_id', pk)
+        
+        return Response({
+            "message": "Live quiz started and notification sent.",
+            "quiz_id": pk,
+            "quiz_name": quiz.name,
+        })
+        
+    except Quiz.DoesNotExist:
+        #print(" ******* Live quiz with id", pk, " not found.")
+        return Response({
+            "error": " *** Quiz with id" + str(pk) + " not found."
+        }, status=404)
+   
+@api_view(["POST"])
+def send_live_question_number(request, pk):
+    # pk is quiz_attempt_id
+    # body contain question id
+    # get body data
+    try:
+      
+        # print("send_live_question_number called with pk (question_number):", pk, " request.data:", request.data)
+        # pik is the question_number
+        live_quiz_id = request.data.get('live_quiz_id', None)
+        question_number = pk
+        question = Question.objects.filter(quiz_id=live_quiz_id, question_number=pk).first()
+        if question is None:
+            print(" ******* Question with quiz_id", live_quiz_id, " and question_number ", pk, " not found.")
+            return Response({
+                "error": "Question not found for the given question_number."
+            }, status=404)
+            
+        # send a notification to Redis channel to notify clients
+        settings.R_CONN.publish('notifications', json.dumps({
+            "message_type": "live_question_number",
+            "content": question_number,
+        }))
+        # return a success response
+        return Response({
+            "status": "Live question number sent to notifications channel",
+            "question_number": question_number,
+        }, status=200)
+        
+    
+    except Exception as e:
+        return Response({
+            "error": f"Error processing request: {str(e)}"
+        }, status=500)
+       
+        
+@api_view(["GET"])
 def reset_quiz_attempt(request, pk):
     """
         Reset the quiz attempt by deleting existing question attempts
@@ -388,17 +482,59 @@ def process_live_question_attempt(request):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        #print(" type of assessment_results:", type(assessment_results))
+        
+        """
+        assessment_results: {'error_flag': False, 'score': 5, 
+        'cloze_question_results': [{'user_answer': 'am', 'answer_key': 'am', 'error_flag': False, 'score': 5}]}
+        """
+        # type of assessment_results: <class 'dict'>
+        # assessment_results is a dictionary
+        # let's access the score key of the dictionary
+        score = assessment_results.get('score', 0)
+        
         #print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
+        #print(" score to be published live:", assessment_results.score)
         """
-         {'error_flag': False, 'score': 10, 'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
+         {'error_flag': False, 'score': 10, 
+         'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
         """
-        test_data = {'score': 10, 'user_name': 'test_user'}
-        message = json.dumps(test_data)  # Convert entire data to JSON string
-        #print("Message to send:", message)
-        # notify Redis channel 
-        #settings.R_CONN.publish('notifications', message)
+        from_user = request.data.get('user_name', 'anonymous')
+        #print(" Publishing live score for user:", from_user)
+      
+        """
+          message_type: 'live_score',
+          content: value,  // format of content is "question_number: score", e.g. "1:5"
+          user_name: name, // sender
+         
+        """
+        
+        # delete the live question number for the user from Redis store after processing the answer,
+        #
+        key = f"{from_user}_live_question_number"
+        settings.R_CONN.delete(key)
+        
+        # retrieve total score for the user from Redis store, if not exist, initialize it to 0
+        total_score_key = f"{from_user}_total_live_score"
+        total_score = settings.R_CONN.get(total_score_key)
+        if total_score is None:
+            total_score = 0
+        else:
+            total_score = int(total_score)
+            
+        # add the current score to the total score and update it in Redis store
+        total_score += score
+        settings.R_CONN.set(total_score_key, total_score)
+        
+        score_data = {'message_type': 'live_score', 'content': score, 'live_total_score': total_score, 'user_name': from_user}
+        message = json.dumps(score_data)  # Convert entire data to JSON string
+        # print("Message to send:", message)
+        # notify other users via Redis channel 
+        # print("Publishing live score to Redis channel 'notifications':", message)
+        settings.R_CONN.publish('notifications', message)
         # settings.R_CONN.publish('notifications',json.dumps(testJson))
-
+        
+  
         #return JsonResponse({'status': 'Message sent to notifications channel'})
         
         return Response({
