@@ -124,7 +124,7 @@ class UnitListView(generics.ListAPIView):
    
 @api_view(["GET"])
 def get_question_by_number(request, quiz_id, question_number):
-    print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
+    #print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
     try:
         question = Question.objects.get(quiz_id=quiz_id, question_number=question_number)
         serializer = QuestionSerializer(question)
@@ -388,13 +388,13 @@ def process_live_question_attempt(request):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
-        print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
+        #print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
         """
          {'error_flag': False, 'score': 10, 'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
         """
         test_data = {'score': 10, 'user_name': 'test_user'}
         message = json.dumps(test_data)  # Convert entire data to JSON string
-        print("Message to send:", message)
+        #print("Message to send:", message)
         # notify Redis channel 
         #settings.R_CONN.publish('notifications', message)
         # settings.R_CONN.publish('notifications',json.dumps(testJson))
