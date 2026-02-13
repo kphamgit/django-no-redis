@@ -351,8 +351,6 @@ def start_live_quiz(request, pk):
         # (for recovery purposes in case in case user drops connection and reconnects later
         # or is logged in during a live quiz session)
         settings.R_CONN.set('live_quiz_id', pk)
-        # settings.R call('JSON.SET', `user:${user_name}`, '$', JSON.stringify(newUser));
-        # settings.R_CONN.call('JSON.SET', "user:student1", '$', json.dumps(pk))
         
         return Response({
             "message": "Live quiz started and notification sent.",
@@ -368,8 +366,9 @@ def start_live_quiz(request, pk):
    
 @api_view(["POST"])
 def send_live_question_number(request, pk):
-    # pk is question_number
-    # body contains live_quiz_id id
+    # pk is quiz_attempt_id
+    # body contain question id
+    # get body data
     try:
       
         # print("send_live_question_number called with pk (question_number):", pk, " request.data:", request.data)
@@ -383,12 +382,6 @@ def send_live_question_number(request, pk):
                 "error": "Question not found for the given question_number."
             }, status=404)
             
-        # save key as "live_question_number" and value to Redis store using settings.R_CONN, 
-        # so that the frontend can retrieve the latest live question number and retrieve it
-        # when they log in or refresh the page during a live quiz session
-        
-        settings.R_CONN.set('live_question_number', question_number)
-        
         # send a notification to Redis channel to notify clients
         settings.R_CONN.publish('notifications', json.dumps({
             "message_type": "live_question_number",
@@ -518,8 +511,22 @@ def process_live_question_attempt(request):
         
         # delete the live question number for the user from Redis store after processing the answer,
         #
+        key = f"{from_user}_live_question_number"
+        settings.R_CONN.delete(key)
         
-        score_data = {'message_type': 'live_score', 'content': score, 'user_name': from_user}
+        # retrieve total score for the user from Redis store, if not exist, initialize it to 0
+        total_score_key = f"{from_user}_total_live_score"
+        total_score = settings.R_CONN.get(total_score_key)
+        if total_score is None:
+            total_score = 0
+        else:
+            total_score = int(total_score)
+            
+        # add the current score to the total score and update it in Redis store
+        total_score += score
+        settings.R_CONN.set(total_score_key, total_score)
+        
+        score_data = {'message_type': 'live_score', 'content': score, 'live_total_score': total_score, 'user_name': from_user}
         message = json.dumps(score_data)  # Convert entire data to JSON string
         # print("Message to send:", message)
         # notify other users via Redis channel 
