@@ -58,7 +58,7 @@ def send_notification(request):
         # look in the nodejs server (with Redis) code to see how the message is 
         # consumed from the notifications channel and sent to clients via websocket
         # redis_client.publish('notifications', message)
-        settings.R_CONN.publish('notifications', message)
+        #******* settings.R_CONN.publish('notifications', message)
         
         # save the message to a Redis list for record-keeping (optional)
         # settings.R_CONN.lpush('notifications_history', message)
