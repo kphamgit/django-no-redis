@@ -62,7 +62,7 @@ def send_notification(request):
         
         # save the message to a Redis list for record-keeping (optional)
         # settings.R_CONN.lpush('notifications_history', message)
-        # settings.R_CONN.publish('notifications',json.dumps(testJson))
+        settings.R_CONN.publish('notifications',json.dumps(message))
 
         return JsonResponse({'status': 'Message sent to notifications channel'})
     except json.JSONDecodeError:

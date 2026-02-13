@@ -130,6 +130,14 @@ print("REDIS_URL:", REDIS_URL)
 # if REDIS_URL has a 'localhost' string,  don't ssl_cert_que
 
 
+# 1. Get the URL from environment or default to local
+REDIS_URL = os.environ.get('REDISCLOUD_URL', 'redis://127.0.0.1:6379')
+
+# 2. Define the global connection variable
+R_CONN = redis.from_url(REDIS_URL, decode_responses=True)
+
+
+"""
 if REDIS_URL and 'rediss' in REDIS_URL:  # if REDIS_URL is defined and uses rediss:// scheme, then it's likely a production environment that requires SSL
       R_CONN = redis.StrictRedis.from_url(
         REDIS_URL, 
@@ -141,6 +149,7 @@ else:   # development environment, or production environment that doesn't requir
         REDIS_URL, 
         decode_responses=True,
     )
+"""
 
 """
 if REDIS_URL:
