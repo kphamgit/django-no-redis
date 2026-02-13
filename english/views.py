@@ -166,7 +166,10 @@ class UnitCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("UnitCreateView perform_create, request data:", self.request.data)
+        print("UnitCreateView perform_create, request data:", self.request.data)
+
+        """
+        print("UnitCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 category_id=self.request.data.get('category_id'),
@@ -175,7 +178,7 @@ class UnitCreateView(generics.ListCreateAPIView):
             )
         else:
             print(serializer.errors)
-    
+        """
   
            
 @api_view(["GET"])

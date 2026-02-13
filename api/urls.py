@@ -21,12 +21,8 @@ urlpatterns = [
     path("video_question_attempts/<int:pk>/process/", views.process_video_question_attempt),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process/", views.process_question_attempt),  # pk is quiz_attempt_id
     path("process_live_question_attempt/", views.process_live_question_attempt),  # pk is quiz_attempt_id
-    path("start_live_quiz/<int:pk>/", views.start_live_quiz),  # pk is live quiz_id
-    path("send_live_question_number/<int:pk>/", views.send_live_question_number),  # pk is live question number
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/", views.get_question_by_number),
-    path("quizzes/<int:quiz_id>/questions/<int:question_number>/live/", views.get_question_by_number_live),
    
     #/api/video_question_attempts/261/process/
-    #live_question_number
 ] 
    #process_live_question_attempt
