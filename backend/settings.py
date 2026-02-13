@@ -129,8 +129,8 @@ print("REDIS_URL:", REDIS_URL)
 # redis://localhost:6379/0
 # if REDIS_URL has a 'localhost' string,  don't ssl_cert_que
 
-"""
-f REDIS_URL and 'rediss' in REDIS_URL:  # if REDIS_URL is defined and uses rediss:// scheme, then it's likely a production environment that requires SSL
+
+if REDIS_URL and 'rediss' in REDIS_URL:  # if REDIS_URL is defined and uses rediss:// scheme, then it's likely a production environment that requires SSL
       R_CONN = redis.StrictRedis.from_url(
         REDIS_URL, 
         decode_responses=True,
@@ -141,7 +141,6 @@ else:   # development environment, or production environment that doesn't requir
         REDIS_URL, 
         decode_responses=True,
     )
-"""
 
 """
 if REDIS_URL:
