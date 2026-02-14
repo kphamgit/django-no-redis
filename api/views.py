@@ -148,10 +148,11 @@ def get_question_by_number_live(request, quiz_id, question_number):
         # predent user_name to the string "_live_question_number" 
         # and save to Redis store for bootstrap purpose when user first logs in during a live quiz session, so that the frontend can retrieve the latest live question number and display the correct question to the user when they log in or refresh the page during a live quiz session
        
-        key = f"{user_name}_live_question_number"
-        settings.R_CONN.set(key, question_number)
+        # key = f"{user_name}_live_question_number"
+        # settings.R_CONN.set(key, question_number)
         
         # nofity clients (users) via Redis channel
+        
         settings.R_CONN.publish('notifications', json.dumps({
             "message_type": "live_question_retrieved",
             "content": question.question_number,
@@ -350,6 +351,7 @@ def start_live_quiz(request, pk):
         # use R_CONN from settings.py to persist live quiz id to Redis store
         # (for recovery purposes in case in case user drops connection and reconnects later
         # or is logged in during a live quiz session)
+        print("Persisting live quiz id to Redis store with key 'live_quiz_id' and value:", pk)
         settings.R_CONN.set('live_quiz_id', pk)
         # settings.R call('JSON.SET', `user:${user_name}`, '$', JSON.stringify(newUser));
         # settings.R_CONN.call('JSON.SET', "user:student1", '$', json.dumps(pk))
