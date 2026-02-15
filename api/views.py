@@ -13,6 +13,9 @@ from api.utils import check_answer
 
 from django.conf import settings
 
+        
+import json
+
 #import redis
 
 from rest_framework.response import Response
@@ -517,20 +520,43 @@ def process_live_question_attempt(request):
           user_name: name, // sender
          
         """
-        
-        # delete the live question number for the user from Redis store after processing the answer,
-        #
-        
-        score_data = {'message_type': 'live_score', 'content': score, 'user_name': from_user}
-        message = json.dumps(score_data)  # Convert entire data to JSON string
-        # print("Message to send:", message)
+        # execute_command is a RedisJSON command to get the user document from Redis store, and access the live_total_score field in the user document, if not exist, initialize it to 0, then add the current score to the live_total_score,
+        live_total_score = settings.R_CONN.execute_command('JSON.GET', f"user:{from_user}", '$.live_total_score')
+        print(" ***** Retrieved live_total_score from Redis for user", from_user, ":", live_total_score)
+        # live_total_score is an array
+
+
+# Assuming live_total_score is returned as a JSON string, e.g., "[999]"
+        if live_total_score:
+        # Parse the JSON string into a Python list
+            live_total_score_list = json.loads(live_total_score)
+            #print("Parsed live_total_score as list:", live_total_score_list)
+        # IMPORTANT: since we are using JSON.GET with a path, the result is always a list, 
+        # even if there is only one element in the list. 
+        # So we need to extract the first element from the list to get the actual live_total_score value.
+        # Extract the first (and only) element from the list
+            live_total_score_int = int(live_total_score_list[0])
+            #print("Parsed live_total_score as integer:", live_total_score_int)
+        else:
+            # If the value doesn't exist, initialize it to 0
+            live_total_score_int = 0
+            #print("live_total_score not found. Initialized to 0.")
+            
+        # compare live_total_score_int with 999
+        if live_total_score_int >= 999:
+            #print("live_total_score is greater than or equal to 999, resetting to 0.")
+            live_total_score_int = 0
+            
+        # add current score to live_total_score_int
+        live_total_score_int += score
+        # update live_total_score in Redis store using settings.R_CONN.execute_command with RedisJSON command to update the live_total_score field in the user document in Redis store
+        settings.R_CONN.execute_command('JSON.SET', f"user:{from_user}", '$.live_total_score', json.dumps(live_total_score_int))
+        #print(" FINALLY live_total_score to be published for user", from_user, ":", live_total_score_int)
+        score_data = {'message_type': 'live_score', 'content': {"score": score, "live_total_score": live_total_score_int }, 'user_name': from_user}
         # notify other users via Redis channel 
+        message = json.dumps(score_data)  # Convert entire data to JSON string because Redis only accepts strings, and we want to send a structured message that includes the score, live_total_score, and user_name, so we use a dictionary and convert it to a JSON string before sending it to Redis.
         # print("Publishing live score to Redis channel 'notifications':", message)
         settings.R_CONN.publish('notifications', message)
-        # settings.R_CONN.publish('notifications',json.dumps(testJson))
-        
-  
-        #return JsonResponse({'status': 'Message sent to notifications channel'})
         
         return Response({
             "assessment_results": assessment_results,
