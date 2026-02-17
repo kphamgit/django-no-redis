@@ -128,11 +128,12 @@ class QuestionCreateView(generics.ListCreateAPIView):
 
     #fields = ["id", "unit_id", "name", "quiz_number", "questions"]
 class QuizCreateView(generics.ListCreateAPIView):
+    print("QuizCreateView called")
     serializer_class = QuizSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("QuizCreateView perform_create, request data:", self.request.data)
+        print("QuizCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),
@@ -600,4 +601,29 @@ class ItemDeleteView(generics.DestroyAPIView):
         print("ItemDeleteView get_queryset, queryset:", queryset)
         
         return queryset
+    
+@api_view(["POST"])
+def move_quiz(request, pk):
+    print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
+    try:
+        quiz = Quiz.objects.get(id=pk)
+        new_unit_id = request.data.get('new_unit_id', None)
+        if new_unit_id is None:
+            return Response({
+                "error": "new_unit_id is required in the request data."
+            }, status=400)
+        new_unit = Unit.objects.get(id=new_unit_id)
+        quiz.unit = new_unit
+        quiz.save()
+        return Response({
+            "message": f"Quiz {quiz.name} moved to unit {new_unit.name} successfully."
+        })
+    except Quiz.DoesNotExist:
+        return Response({
+            "error": "Quiz not found for the given quiz_id."
+        }, status=404)
+    except Unit.DoesNotExist:
+        return Response({
+            "error": "Unit not found for the given new_unit_id."
+        }, status=404)
     

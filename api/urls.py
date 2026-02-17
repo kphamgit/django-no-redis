@@ -25,6 +25,7 @@ urlpatterns = [
     path("send_live_question_number/<int:pk>/", views.send_live_question_number),  # pk is live question number
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/", views.get_question_by_number),
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/live/", views.get_question_by_number_live),
+  
    
     #/api/video_question_attempts/261/process/
     #live_question_number
