@@ -124,8 +124,17 @@ def check_words_scramble(user_answer, answer_key, options):
     #return user_answer.strip().lower() == answer_key.strip().lower()
 
 def check_speech_recognition(user_answer, answer_key, options):
+    #print("in check_speech_recognition... user_answer:", user_answer, " answer_key:", answer_key)
     # Placeholder function to check speech recognition answers
-    return user_answer.strip().lower() == answer_key.strip().lower()
+    error = False
+    score = 0
+    if user_answer.strip().lower() == answer_key.strip().lower():
+        score += 5
+    else:
+        error = True
+        
+    return {"error_flag": error, "score": score}
+    #return user_answer.strip().lower() == answer_key.strip().lower()
 
 def check_words_select(user_answer, answer_key, options):
    # user answer is a string separated by slashes
@@ -223,7 +232,9 @@ def check_answer(format, user_answer, answer_key):
         #print("Checking word_scramble answer...")
         results = check_words_scramble(user_answer, answer_key, options=[])
         #return results
-    
+    elif format == 7:  #speech recognition
+        results = check_speech_recognition(user_answer, answer_key, options=[])
+        
     elif format == 8:  #words select
         #print("Checking word_select answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_words_select(user_answer, answer_key, options=[])
