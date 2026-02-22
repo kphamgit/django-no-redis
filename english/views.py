@@ -342,9 +342,14 @@ class VideoSegmentRetrieveByNumberView(generics.RetrieveAPIView):
     lookup_field = 'segment_number'
 
     def get_queryset(self):
-        segment_number = self.kwargs.get('segment_number')
+        quiz = self.kwargs.get('pk')
+        # since segment_number is not unique across all video segments, we filter by quiz_id first, then segment_number
+        temp_queryset = VideoSegment.objects.filter(quiz_id=quiz)
+        # then we will use lookup_field to filter by segment_number
+        queryset = temp_queryset.filter(segment_number=self.kwargs.get('segment_number'))
+        #segment_number = self.kwargs.get('segment_number')
         #("VideoSegmentRetrieveView ****** get_queryset, segment_number:", segment_number)
-        queryset = VideoSegment.objects.filter(segment_number=segment_number)
+        #queryset = VideoSegment.objects.filter(segment_number=segment_number)
         return queryset
     
 class VideoSegmentEditView(generics.RetrieveUpdateAPIView):

@@ -31,7 +31,7 @@ urlpatterns = [
     path("quizzes/<int:pk>/move/", views.move_quiz),  # for moving quiz to different category/unit/level
     
     # RETRIEVE views
-    path("video_segments/retrieve_by_segment_number/<int:segment_number>/", views.VideoSegmentRetrieveByNumberView.as_view(), name="video-segment-retrieve-by-number"),
+    path("quizzes/<int:pk>/video_segments/retrieve_by_segment_number/<int:segment_number>/", views.VideoSegmentRetrieveByNumberView.as_view(), name="video-segment-retrieve-by-number"),
     path("video_segments/retrieve/<int:pk>/", views.VideoSegmentRetrieveView.as_view(), name="video-segment-retrieve"),
     
     # EDIT views
