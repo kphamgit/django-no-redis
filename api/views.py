@@ -660,16 +660,19 @@ def process_question_attempt(request, pk):
         quiz_attempt.score = quiz_attempt.score + score
       
         if error_flag:
-            # add question id to errorneous_questions in quiz_attempt
-            #print(" **** question is errorneous, adding to errorneous_questions array")
+            # add question id to errorneous_questions in quiz_attempt only if not in review state
+            #if not quiz_attempt.review_state:
+                #print(" **** question is errorneous, adding to errorneous_questions array")
             if (len(quiz_attempt.errorneous_questions) == 0) :
-                #print("  errorneous_questions is empty, adding  question id")
+                    #print("  errorneous_questions is empty, adding  question id")
                 quiz_attempt.errorneous_questions = str(question_attempt.question.id)
             else:
-                ##print("  errorneous_questions is not empty, adding question id")
+                    ##print("  errorneous_questions is not empty, adding question id")
                 quiz_attempt.errorneous_questions += f",{question_attempt.question.id}"
                 
             #quiz_attempt.save()
+        
+        """
         else :  # remove question id from errorneous_questions in quiz_attempt if present
             #print(" **** question is correct, remove from errorneous_questions array if present")
             if quiz_attempt.errorneous_questions:
@@ -682,18 +685,32 @@ def process_question_attempt(request, pk):
                     
             #print(" Errorneous questions after removal (if any):", quiz_attempt.errorneous_questions)
             #print(" right now, quiz_attempt.errorneous_questions should have been updated")
-     
+        """
+        
         quiz_attempt.save()
         
         #print(" Finished updating question attempt. Now determining next question...")
         #print(" check if the quiz attempt is in review state")
         if quiz_attempt.review_state:
             #print(" Quiz attempt is in review state. Get the first errorneous question in list if any")
+            #print(" ids of errorneous questions in quiz_attempt.errorneous_questions:", quiz_attempt.errorneous_questions)
             errorneous_question_ids = [int(qid) for qid in quiz_attempt.errorneous_questions.split(",") if qid.isdigit()]
+            #print(" Parsed errorneous_question_ids as list of integers:", errorneous_question_ids)
+            #print(" first question id in errorneous_question_ids list (if not empty):", errorneous_question_ids[0] if errorneous_question_ids else "No errorneous questions")
             # get first id in the errorneous_question_ids list
             if errorneous_question_ids:    # check for not empty or not null
-                next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).order_by('question_number').first()
+                #next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).order_by('question_number').first()
+                # next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).first()
+                next_errorneous_question = Question.objects.filter(id = errorneous_question_ids[0]).first()
                 if next_errorneous_question:
+                    # remove errouneous question from the errorneous_question_ids list
+                    #print(" Next errorneous question found with id:", next_errorneous_question.id, " question number:", next_errorneous_question.question_number)
+                    errorneous_questions_array = quiz_attempt.errorneous_questions.split(",")
+                    if str(next_errorneous_question.id) in errorneous_questions_array:
+                        #print(" Removing question id:(for review)", next_errorneous_question.id, " from errorneous_questions_array")
+                        errorneous_questions_array.remove(str(next_errorneous_question.id))
+                        quiz_attempt.errorneous_questions = ",".join(errorneous_questions_array)
+                        quiz_attempt.save()
                     return Response({
                         "next_question_id" : next_errorneous_question.id,
                         "assessment_results": assessment_results,
