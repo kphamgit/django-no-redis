@@ -40,7 +40,7 @@ redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
 @csrf_exempt
 @require_POST
 def send_notification(request):
-    print("send_notification endpoint hit request", request)
+    #print("send_notification endpoint hit request", request)
     try:
         # Parse the JSON payload (remember request.body is ALWAYS in JSON string format,
         # so you need to json.loads it to convert it to a Python dict before you can access its fields)
@@ -115,7 +115,6 @@ class QuizDetailView(generics.RetrieveAPIView):
         return Quiz.objects.all().prefetch_related('video_segments')
     
 class UnitListView(generics.ListAPIView):
-    print("****** UnitListView called")
     serializer_class = UnitWithQuizzesSerializer
     permission_classes = [IsAuthenticated]
     #permission_classes = [AllowAny]
@@ -124,7 +123,6 @@ class UnitListView(generics.ListAPIView):
         category_id = self.kwargs.get('category_id')
         queryset = Unit.objects.filter(category_id=category_id).order_by('unit_number')
         #print("UnitListView, Filtered Units no Prefetch:", queryset)
-        print("****** UnitListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
    
 @api_view(["GET"])
@@ -175,9 +173,6 @@ def create_video_quiz_attempt(request):
         """
             Create a QuizAttempt for the given quiz and user (used only in TakeVideoQuiz)
         """
-        
-        print("create_quiz_attempt called with request.data:", request.data)
-      
         quiz_id = request.data.get('quiz_id', None)
         
         quiz_attempt  = QuizAttempt.objects.create(
@@ -301,10 +296,10 @@ def continue_quiz_attempt(request, pk):
         if last_question_attempt:
         # check if last question attempt is completed
             if last_question_attempt.completed:
-                print("Last QuestionAttempt is completed. Creating next QuestionAttempt.")
+                #print("Last QuestionAttempt is completed. Creating next QuestionAttempt.")
                 next_question = Question.objects.filter(quiz_id=quiz_attempt.quiz_id, question_number__gt=last_question_attempt.question.question_number).order_by('question_number').first()
                 if next_question:
-                    print("Next question found: question id = ", next_question.id)
+                    #print("Next question found: question id = ", next_question.id)
                     question_attempt = QuestionAttempt.objects.create(
                         quiz_attempt=quiz_attempt,
                         question=next_question,
@@ -355,7 +350,7 @@ def start_live_quiz(request, pk):
         # use R_CONN from settings.py to persist live quiz id to Redis store
         # (for recovery purposes in case in case user drops connection and reconnects later
         # or is logged in during a live quiz session)
-        print("Persisting live quiz id to Redis store with key 'live_quiz_id' and value:", pk)
+        # print("Persisting live quiz id to Redis store with key 'live_quiz_id' and value:", pk)
         settings.R_CONN.set('live_quiz_id', pk)
         # settings.R call('JSON.SET', `user:${user_name}`, '$', JSON.stringify(newUser));
         # settings.R_CONN.call('JSON.SET', "user:student1", '$', json.dumps(pk))
@@ -386,7 +381,7 @@ def send_live_question_number(request, pk):
         question_number = pk
         question = Question.objects.filter(quiz_id=live_quiz_id, question_number=pk).first()
         if question is None:
-            print(" ******* Question with quiz_id", live_quiz_id, " and question_number ", pk, " not found.")
+            #print(" ******* Question with quiz_id", live_quiz_id, " and question_number ", pk, " not found.")
             return Response({
                 "error": "Question not found for the given question_number."
             }, status=404)
@@ -460,7 +455,7 @@ def create_question_attempt(request, pk):
     # body contain question id
     # get body data
     try:
-        print("******** create_question_attempt called for quiz_attempt id:", pk, " request.data:", request.data)
+        # print("******** create_question_attempt called for quiz_attempt id:", pk, " request.data:", request.data)
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         question_id = request.data.get('question_id', None)
         #print("create_question_attempt for quiz_attempt id:", pk, " question_id:", question_id)
@@ -632,7 +627,7 @@ def process_video_question_attempt(request, pk):
 @api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
-        #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        # print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
         
         #print(" process_question_attempt, assessment_results:", assessment_results)

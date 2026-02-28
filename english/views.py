@@ -133,7 +133,7 @@ class QuizCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        print("QuizCreateView perform_create, request data:", self.request.data)
+        #print("QuizCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),

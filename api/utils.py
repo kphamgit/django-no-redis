@@ -3,10 +3,8 @@ def check_cloze(user_answer, answer_key, options):
     #print("in check_cloze_answer... user_answer:", user_answer, " answer_key:", answer_key)
     #error = False
     total_score = 0
-    answer_key_parts = [part.strip().lower() for part in answer_key.split('/')]
-    #print("answer_key_parts:", answer_key_parts)
-    user_answer_parts = [part.strip().lower() for part in user_answer.split('/')]
-    #print("user_answer_parts:", user_answer_parts)
+    answer_key_parts = [part.strip() for part in answer_key.split('/')]
+    user_answer_parts = [part.strip() for part in user_answer.split('/')]
 
     # Ensure both arrays are the same size
     if len(user_answer_parts) != len(answer_key_parts):
@@ -16,14 +14,23 @@ def check_cloze(user_answer, answer_key, options):
     # Collect detailed comparison information
     cloze_question_results = []
     for user_part, answer_part in zip(user_answer_parts, answer_key_parts):
+        # who*that/smart*intelligent
         score = 0
         error = False
-        is_correct = user_part == answer_part
-        if not is_correct:
-            error = True
+        # if answer part contains an asterisk, it means that there are multiple correct answers 
+        # separated by asterisks
+        if '*' in answer_part:
+            possible_answers = [ans.strip() for ans in answer_part.split('*')]
+            if user_part not in possible_answers:
+                error = True
+            else:
+                score += 5
         else:
-            score += 5  # Increment score for correct answers
-
+            if user_part != answer_part:
+                error = True
+            else:
+                score += 5
+                
         total_score += score
         cloze_question_results.append({
             "user_answer": user_part,
@@ -31,16 +38,7 @@ def check_cloze(user_answer, answer_key, options):
             "error_flag": error,
             "score": score,
         })
-
-    #print("Detailed comparison results:", cloze_question_results)
-
-    # Determine overall error
-    #overall_error = any(not result["is_correct"] for result in cloze_question_results)
-
-    # Return detailed results, overall error, and score
-   
-    #return not overall_error 
-    #print("in check_cloze: cloze question results:", cloze_question_results)
+    
     return cloze_question_results
             
 def check_button_cloze(user_answer, answer_key, options):
@@ -205,7 +203,6 @@ def check_answer(format, user_answer, answer_key):
     if format == 1:   #cloze
         #print("Checking cloze answer...")
         cloze_question_results = check_cloze(user_answer, answer_key, options=[])
-        #print("Computed cloze question results:", cloze_question_results)
         results = {
             "error_flag": any(result["error_flag"] for result in cloze_question_results),
             "score": sum(result["score"] for result in cloze_question_results),
