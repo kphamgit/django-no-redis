@@ -106,6 +106,115 @@ def level_list(request):
     #print("level_list serializer.data:", serializer.data)
     return Response(serializer.data)
     
+
+# views.py
+#import io
+#from django.http import HttpResponse
+#from rest_framework.views import APIView
+#from deepgram import DeepgramClient, SpeakOptions
+#from rest_framework.decorators import permission_classes
+
+import os
+from openai import OpenAI
+from django.http import HttpResponse
+
+
+# Ensure OPENAI_API_KEY is in your environment variables
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+@api_view(['POST'])
+#@permission_classes([AllowAny])  # Allow unauthenticated access for testing
+def speak(request):
+    # Get text from request (optional)
+    text = request.data.get("text", "This is a test of OpenAI TTS.")
+
+    # Generate TTS
+    response = client.audio.speech.create(
+        model="gpt-4o-mini-tts",  # Correct TTS model
+        voice="alloy",
+        input=text
+    )
+
+    # Read full audio bytes
+    audio_bytes = response.read()
+
+    # Return as MP3
+    return HttpResponse(audio_bytes, content_type="audio/mpeg")
+
+    
+    """
+    # class TextToSpeechView(APIView):
+    def post(self, request):
+        #text = request.data.get("text")
+        text = "this is a test"
+        if not text:
+            return HttpResponse("No text provided", status=400)
+
+        try:
+            # Initialize Deepgram
+            client = DeepgramClient("db7a5e776eab40a8b4dc1db00fb643cf063fbe12")
+           
+            options = Sp
+          
+            response = client.speak.v("1").save(
+            text,
+            options,
+        )
+
+            
+            # Return binary audio data directly to the frontend
+            return HttpResponse(response.stream.getvalue(), content_type="audio/mpeg")
+
+        except Exception as e:
+            return HttpResponse(str(e), status=500)
+    """
+    
+from django.http import StreamingHttpResponse
+#from rest_framework.decorators import api_view
+#from openai import OpenAI
+
+#client = OpenAI(api_key="OPENAI_API_KEY")  # Use env variable in production
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+@api_view(['POST'])
+#@permission_classes([AllowAny]) 
+def speak_stream(request):
+    text = request.data.get("text", "Hello, this is a streaming test!")
+
+    def stream_audio():
+        # Use streaming response from OpenAI
+        with client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=text
+        ) as response:
+            for chunk in response.iter_bytes(chunk_size=1024):
+                yield chunk
+
+    return StreamingHttpResponse(stream_audio(), content_type="audio/mpeg")
+    
+from django.http import StreamingHttpResponse
+from rest_framework.decorators import api_view
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+@api_view(['POST'])
+#@permission_classes([AllowAny]) 
+def speak_realtime(request):
+    text = request.data.get("text", "Hello, this is a real-time streaming test!")
+
+    def stream_audio():
+        with client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=text
+        ) as response:
+            for chunk in response.iter_bytes(chunk_size=1024):
+                yield chunk
+
+    return StreamingHttpResponse(stream_audio(), content_type="audio/mpeg")
+    
 class QuizDetailView(generics.RetrieveAPIView):
     serializer_class = QuizDetailSerializer
     permission_classes = [IsAuthenticated]

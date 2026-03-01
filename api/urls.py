@@ -11,7 +11,11 @@ urlpatterns = [
     path("levels/", views.level_list, name="level-list"),
     path("categories/<int:category_id>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("quizzes/<int:pk>/", views.QuizDetailView.as_view(), name="quiz-detail"),  # pk is quiz_id
-   
+    #TextToSpeechView
+    
+    #path("text_to_speech_openai/", views.speak, name="text-to-speech"),
+    path("text_to_speech_openai/", views.speak_realtime, name="text-to-speech"),
+    
     path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
