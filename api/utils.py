@@ -1,8 +1,8 @@
-import hashlib
-import io
-from gtts import gTTS
-from azure.storage.blob import BlobServiceClient
-from django.conf import settings
+#import hashlib
+#import io
+#from gtts import gTTS
+# from azure.storage.blob import BlobServiceClient
+# from django.conf import settings
 
 """
 def get_or_create_audio_blob(text_content):
