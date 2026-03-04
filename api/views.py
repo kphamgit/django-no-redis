@@ -76,6 +76,87 @@ def send_notification(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+import boto3
+from django.conf import settings
+
+import boto3
+from botocore.config import Config # ⬅️ Import this
+from django.conf import settings
+
+def get_audio_url(file_key):
+    # Initialize the client with the v4 signature config
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+        config=Config(signature_version='s3v4') # ⬅️ Add this line
+    )
+
+    url = s3_client.generate_presigned_url(
+        'get_object',
+        Params={
+            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+            'Key': file_key
+        },
+        ExpiresIn=3600
+    )
+    return url
+
+@csrf_exempt
+def get_recordings(request):
+    # List objects in the S3 bucket under the "audios/recordings/" prefix
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME
+    )
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    prefix = "audios/recordings/"
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+    recordings = []
+    for obj in response.get('Contents', []):
+        file_key = obj['Key']
+        url = get_audio_url(file_key)
+        recordings.append({
+            'file_key': file_key,
+            'audio_url': url
+        })
+        
+    return JsonResponse({'recordings': recordings})
+
+
+@csrf_exempt
+def upload_audio(request):
+  # 1. Initialize the S3 client using your Django settings
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME
+    )
+
+    #bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    audio_file = request.FILES.get('audio')
+    if audio_file:
+        # Inside your Django view
+        audio_file = request.FILES.get('audio')
+        audio_file.seek(0)  # 👈 ALWAYS add this line before uploading to S3
+    
+        # print("Received audio file:", audio_file.name, "size:", audio_file.size)
+        s3_client.put_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key="audios/recordings/" + audio_file.name,
+            Body=audio_file,
+            ContentType="audio/webm"  # Set the correct content type for audio files
+        )
+        #print("Audio file uploaded to S3 with name:", audio_file.name)
+        return JsonResponse({'status': 'Audio file uploaded successfully'})
+    else:
+        return JsonResponse({'error': 'No audio file provided'}, status=400)
+        
 class CreateUserView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer

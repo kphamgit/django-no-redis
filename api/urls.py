@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from django.http import JsonResponse
 
+
 #/api/quizzes/${quizId}/questions/${questionNumber}/`)
 
 urlpatterns = [
@@ -15,6 +16,12 @@ urlpatterns = [
     
     #path("text_to_speech_openai/", views.speak, name="text-to-speech"),
     path("text_to_speech_openai/", views.speak_realtime, name="text-to-speech"),
+    #path("text_to_speech_azure/", views.generate_azure_audio, name="text-to-speech-azure"),
+    #upload-audio
+    path("upload-audio/", views.upload_audio, name="upload-audio"),
+    path("get_recordings/", views.get_recordings, name="get-recordings"),
+    #handle_audio_request
+    
     
     path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id

@@ -123,9 +123,16 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME')
+
+AWS_DEFAULT_ACL = None
+
 # Get the URL from Heroku environment
 REDIS_URL = os.environ.get('REDIS_URL')
-print("REDIS_URL:", REDIS_URL)
+#print("REDIS_URL:", REDIS_URL)
 # redis://localhost:6379/0
 # if REDIS_URL has a 'localhost' string,  don't ssl_cert_que
 
@@ -231,6 +238,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://magnificent-figolla-d3b835.netlify.app',
     'https://magnificent-custard-cc8e68.netlify.com',
     'http://localhost:5174',
+    'http://localhost:5173',
     'http://127.0.0.1:8000',
 ]
 

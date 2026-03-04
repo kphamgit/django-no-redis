@@ -1,3 +1,37 @@
+import hashlib
+import io
+from gtts import gTTS
+from azure.storage.blob import BlobServiceClient
+from django.conf import settings
+
+"""
+def get_or_create_audio_blob(text_content):
+    # 1. Create a unique filename based on the text
+    
+    # We use MD5 to ensure the same text always produces the same filename
+    text_hash = hashlib.md5(text_content.strip().lower().encode('utf-8')).hexdigest()
+    blob_name = f"tts_cache/{text_hash}.mp3"
+
+    # 2. Initialize Azure Client
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONN_STRING)
+    blob_client = blob_service_client.get_blob_client(container="audio-uploads", blob=blob_name)
+
+    # 3. Check if it exists (The "Cache Hit")
+    if blob_client.exists():
+        return blob_client.url
+
+    # 4. If not exists, Generate (The "Cache Miss")
+    tts = gTTS(text=text_content, lang='en')
+    mp3_fp = io.BytesIO()
+    tts.write_to_fp(mp3_fp)
+    mp3_fp.seek(0)
+
+    # 5. Upload to Azure
+    blob_client.upload_blob(mp3_fp, blob_type="BlockBlob", overwrite=True)
+    
+    return blob_client.url
+"""
+
 def check_cloze(user_answer, answer_key, options):
     # Placeholder function to check cloze answers
     #print("in check_cloze_answer... user_answer:", user_answer, " answer_key:", answer_key)
