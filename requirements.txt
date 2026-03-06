@@ -4,6 +4,7 @@ asgiref==3.11.0
 attrs==25.4.0
 autobahn==25.12.2
 Automat==25.4.16
+azure-cognitiveservices-speech==1.48.2
 azure-core==1.38.2
 azure-storage-blob==12.28.0
 boto3==1.42.59
