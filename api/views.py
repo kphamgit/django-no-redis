@@ -75,13 +75,112 @@ def send_notification(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-
-import boto3
-from django.conf import settings
-
 import boto3
 from botocore.config import Config # ⬅️ Import this
+
+import azure.cognitiveservices.speech as speechsdk
+from azure.storage.blob import BlobServiceClient, ContentSettings
 from django.conf import settings
+
+@csrf_exempt
+def create_azure_audio(request):
+    container_name = "tts-audio"
+    full_blob_name = ""
+    text = ""
+    if request.content_type == 'application/json':
+        print("create_azure_audio received JSON request body:", request.body)
+        data = json.loads(request.body)
+        full_blob_name = data.get('blob_name', 'default_name') + ".mp3"
+        print("Received JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        text = data.get('text', "What is that?")
+    else:
+            # Handle form-data or x-www-form-urlencoded
+        print("create_azure_audio received non-JSON request, using POST parameters:", request.POST)
+        full_blob_name = request.POST.get('blog_name') + ".mp3"
+        print("Received non-JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        text = request.POST.get('text', "What is that?")
+        print("Received non-JSON request for create_azure_audio with text:", text)
+        
+    # 1. Initialize Blob Client
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
+
+    # 2. Check if it already exists
+    if blob_client.exists():
+        # Return the existing URL immediately
+        return JsonResponse({'audio_url': blob_client.url})
+
+    print("AZURE_SPEECH_KEY:", settings.AZURE_SPEECH_KEY)
+    print("AZURE_SERVICE_REGION:", settings.AZURE_SERVICE_REGION)
+    # 3. If it doesn't exist, proceed with synthesis
+    speech_config = speechsdk.SpeechConfig(
+        subscription=settings.AZURE_SPEECH_KEY, 
+        region=settings.AZURE_SERVICE_REGION
+    )
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
+    )
+    
+    # Synthesize to memory
+    pull_stream = speechsdk.audio.PullAudioOutputStream()
+    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+    result = synthesizer.speak_text_async(text).get()
+
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        print("Audio synthesis completed successfully for text:", text)
+        # 4. Upload the new audio
+        blob_client.upload_blob(
+            result.audio_data, 
+            overwrite=True,
+            content_settings=ContentSettings(content_type='audio/mpeg')
+        )
+        return JsonResponse({'audio_url': blob_client.url})
+    
+    return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
+
+"""
+def create_azure_audio(text, blob_name):
+    container_name = "tts-audio"
+    #full_blob_name = f"{blob_name}.mp3"
+    full_blob_name = "What is that.mp3"
+    
+    # 1. Initialize Blob Client
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
+
+    # 2. Check if it already exists
+    if blob_client.exists():
+        # Return the existing URL immediately
+        return blob_client.url
+
+    # 3. If it doesn't exist, proceed with synthesis
+    speech_config = speechsdk.SpeechConfig(
+        subscription=settings.AZURE_SPEECH_KEY, 
+        region=settings.AZURE_SERVICE_REGION
+    )
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
+    )
+    
+    # Synthesize to memory
+    pull_stream = speechsdk.audio.PullAudioOutputStream()
+    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+    test_text = "What is that?"
+    result = synthesizer.speak_text_async(test_text).get()
+
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        # 4. Upload the new audio
+        blob_client.upload_blob(
+            result.audio_data, 
+            overwrite=True,
+            content_settings=ContentSettings(content_type='audio/mpeg')
+        )
+        return blob_client.url
+    
+    return None
+"""
 
 def get_audio_url(file_key):
     # Initialize the client with the v4 signature config
@@ -119,6 +218,7 @@ def get_recordings(request):
     recordings = []
     for obj in response.get('Contents', []):
         file_key = obj['Key']
+        #print("Found audio file in S3 with key:", file_key)
         url = get_audio_url(file_key)
         recordings.append({
             'file_key': file_key,
@@ -126,6 +226,41 @@ def get_recordings(request):
         })
         
     return JsonResponse({'recordings': recordings})
+
+@csrf_exempt
+def delete_audio(request):
+    try:
+        # Check if the request body is JSON
+        if request.content_type == 'application/json':
+            #print("delete_audio received JSON request body:", request.body)
+            data = json.loads(request.body)
+            file_key = data.get('file_key')
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            #print("delete_audio received non-JSON request, using POST parameters:", request.POST)
+            file_key = request.POST.get('file_key')
+
+        #print("delete_audio called with file_key:", file_key)
+
+        if not file_key:
+            return JsonResponse({'error': 'file_key parameter is required'}, status=400)
+
+        # Initialize S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME
+        )
+        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+
+        # Delete the object from S3
+        s3_client.delete_object(Bucket=bucket_name, Key=file_key)
+
+        return JsonResponse({'status': f'Audio file with key {file_key} deleted successfully'})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @csrf_exempt
@@ -153,6 +288,16 @@ def upload_audio(request):
             ContentType="audio/webm"  # Set the correct content type for audio files
         )
         #print("Audio file uploaded to S3 with name:", audio_file.name)
+        # student_3_3_2026_10-18-44_PM.webm
+        # split audio_file.name by "_" and get the first part as user name
+        user_name = audio_file.name.split("_")[0]
+        presigned_url = get_audio_url("audios/recordings/" + audio_file.name)
+        settings.R_CONN.publish('notifications', json.dumps({
+            "message_type": "recording_received",
+            "content": presigned_url,
+            "user_name": user_name,
+        }))
+        
         return JsonResponse({'status': 'Audio file uploaded successfully'})
     else:
         return JsonResponse({'error': 'No audio file provided'}, status=400)

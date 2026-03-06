@@ -130,6 +130,14 @@ AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME')
 
 AWS_DEFAULT_ACL = None
 
+AZURE_STORAGE_CONNECTION_STRING=os.environ.get('AZURE_STORAGE_CONNECTION_STRING')
+AZURE_SPEECH_KEY=os.environ.get('AZURE_SPEECH_KEY')
+AZURE_SERVICE_REGION=os.environ.get('AZURE_SERVICE_REGION')
+
+print("Azure Storage Connection String:", AZURE_STORAGE_CONNECTION_STRING)
+print("Azure Speech Key:", AZURE_SPEECH_KEY)
+print("Azure Service Region:", AZURE_SERVICE_REGION)
+
 # Get the URL from Heroku environment
 REDIS_URL = os.environ.get('REDIS_URL')
 #print("REDIS_URL:", REDIS_URL)

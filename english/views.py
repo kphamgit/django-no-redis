@@ -10,6 +10,12 @@ from rest_framework import generics
 from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
 
+import boto3
+from botocore.config import Config # ⬅️ Import this
+
+import azure.cognitiveservices.speech as speechsdk
+from azure.storage.blob import BlobServiceClient, ContentSettings
+from django.conf import settings
 
 # Create your views here.
    
@@ -101,12 +107,55 @@ class QuestionListView(generics.ListAPIView):
         queryset = Question.objects.filter(quiz_id=pk).order_by('question_number')
         return queryset
 
+
+def create_azure_audio(text):
+    container_name = "tts-audio"
+    full_blob_name = f"{text}.mp3"  # You can customize the blob name as needed
+   
+    # 1. Initialize Blob Client
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
+
+    # 2. Check if it already exists
+    if blob_client.exists():
+        # Return the existing URL immediately
+        print(f"Audio already exists for text: {text}, skipping synthesis.")
+        return 
+
+    # 3. If it doesn't exist, proceed with synthesis
+    speech_config = speechsdk.SpeechConfig(
+        subscription=settings.AZURE_SPEECH_KEY, 
+        region=settings.AZURE_SERVICE_REGION
+    )
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
+    )
+    
+    # Synthesize to memory
+    pull_stream = speechsdk.audio.PullAudioOutputStream()
+    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+    result = synthesizer.speak_text_async(text).get()
+
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        #print("Audio synthesis completed successfully for text:", text)
+        # 4. Upload the new audio
+        blob_client.upload_blob(
+            result.audio_data, 
+            overwrite=True,
+            content_settings=ContentSettings(content_type='audio/mpeg')
+        )
+    else:
+        print("Audio synthesis failed for text:", text, " Reason:", result.reason)
+      
+
+
 class QuestionCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
-
+    
     def perform_create(self, serializer):
-        #print("perform_create, request data:", self.request.data)
+        #print("QuestionCreateView, perform_create, request data:", self.request.data)
         if serializer.is_valid():
             #serializer.save()
             #kpham: NO NEED for explicit fields since all are included in serializer
@@ -120,8 +169,29 @@ class QuestionCreateView(generics.ListCreateAPIView):
                 instructions=self.request.data.get('instructions'),
                 prompt=self.request.data.get('prompt'),
                 audio_str=self.request.data.get('audio_str'),
+                button_cloze_options=self.request.data.get('button_cloze_options', None),
                 video_segment_id=self.request.data.get('video_segment_id', None),
             )
+            if self.request.data.get('format') == '6' or self.request.data.get('format') == '3':
+                #print ("QuestionCreateView format = 6 ")
+               
+                scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
+                #print("Scrambled words:", scrambled_words)
+                for word in scrambled_words:
+                    #print(f"Creating Azure audio for word: {word}")
+                    create_azure_audio(word)
+                    
+            if self.request.data.get('format') == '2':
+                #print ("QuestionCreateView format = 2 ")
+                cloze_options = self.request.data.get('button_cloze_options', None)
+                if cloze_options:
+                    cloze_options_list = cloze_options.split("/")
+                    #print("Cloze options:", cloze_options_list)
+                    for option in cloze_options_list:
+                        #print(f"Creating Azure audio for cloze option: {option}")
+                        create_azure_audio(option)
+                        
+             
             
         else:
             print(serializer.errors)

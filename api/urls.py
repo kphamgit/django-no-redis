@@ -17,10 +17,14 @@ urlpatterns = [
     #path("text_to_speech_openai/", views.speak, name="text-to-speech"),
     path("text_to_speech_openai/", views.speak_realtime, name="text-to-speech"),
     #path("text_to_speech_azure/", views.generate_azure_audio, name="text-to-speech-azure"),
-    #upload-audio
+    
+    #Amazon S3
     path("upload-audio/", views.upload_audio, name="upload-audio"),
+    path("delete-audio/", views.delete_audio, name="delete-audio"),
     path("get_recordings/", views.get_recordings, name="get-recordings"),
-    #handle_audio_request
+ 
+    #Microsoft Azure Text-to-Speech
+    path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),
     
     
     path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
