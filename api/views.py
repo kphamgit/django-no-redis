@@ -962,9 +962,9 @@ def process_video_question_attempt(request, pk):
 @api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
-        # print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        #print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
-        
+        #print(" ******* process_question_attempt, assessment_results:", assessment_results)
         #print(" process_question_attempt, assessment_results:", assessment_results)
         error_flag = assessment_results.get('error_flag', True)
         

@@ -34,7 +34,7 @@ def get_or_create_audio_blob(text_content):
 
 def check_cloze(user_answer, answer_key, options):
     # Placeholder function to check cloze answers
-    #print("in check_cloze_answer... user_answer:", user_answer, " answer_key:", answer_key)
+    # print("in check_cloze_answer... user_answer:", user_answer, " answer_key:", answer_key)
     #error = False
     total_score = 0
     answer_key_parts = [part.strip() for part in answer_key.split('/')]
@@ -42,13 +42,14 @@ def check_cloze(user_answer, answer_key, options):
 
     # Ensure both arrays are the same size
     if len(user_answer_parts) != len(answer_key_parts):
-        #print("Error: user_answer_parts and answer_key_parts are not the same size.")
+        print("Error: user_answer_parts and answer_key_parts are not the same size.")
         return False  # or handle the mismatch appropriately
 
     # Collect detailed comparison information
     cloze_question_results = []
     for user_part, answer_part in zip(user_answer_parts, answer_key_parts):
         # who*that/smart*intelligent
+        #print("Comparing user_part:", user_part, " with answer_part:", answer_part)
         score = 0
         error = False
         # if answer part contains an asterisk, it means that there are multiple correct answers 
@@ -75,10 +76,6 @@ def check_cloze(user_answer, answer_key, options):
     
     return cloze_question_results
             
-def check_button_cloze(user_answer, answer_key, options):
-    # Placeholder function to check button select answers
-    return user_answer.strip().lower() == answer_key.strip().lower()
-
 def check_button_select(user_answer, answer_key, options):
     # Placeholder function to check button select answers
     #print("in check_button_select... user_answer:", user_answer, " answer_key:", answer_key)
@@ -243,7 +240,14 @@ def check_answer(format, user_answer, answer_key):
             "cloze_question_results": cloze_question_results,
         }
         #return results
-    
+    elif format == 2:  #button cloze
+        #print("Checking button cloze answer...")
+        button_cloze_results = check_cloze(user_answer, answer_key, options=[]) # use check_cloze for button cloze as well since the logic is the same, just different UI
+        results = {
+            "error_flag": any(result["error_flag"] for result in button_cloze_results),
+            "score": sum(result["score"] for result in button_cloze_results),
+            "cloze_question_results": button_cloze_results,
+        }
     elif format == 3:  #button select
         #print("Checking button select answer...")
         results = check_button_select(user_answer, answer_key, options=[])
@@ -285,7 +289,5 @@ def check_answer(format, user_answer, answer_key):
         
     return results
         
-    
-        #return check_cloze(user_answer, answer_key, options=[])
         
     
