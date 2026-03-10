@@ -856,7 +856,7 @@ def process_live_question_attempt(request):
         """
         # execute_command is a RedisJSON command to get the user document from Redis store, and access the live_total_score field in the user document, if not exist, initialize it to 0, then add the current score to the live_total_score,
         live_total_score = settings.R_CONN.execute_command('JSON.GET', f"user:{from_user}", '$.live_total_score')
-        print(" ***** Retrieved live_total_score from Redis for user", from_user, ":", live_total_score)
+        #print(" ***** Retrieved live_total_score from Redis for user", from_user, ":", live_total_score)
         # live_total_score is an array
 
 
