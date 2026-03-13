@@ -50,6 +50,7 @@ def check_cloze(user_answer, answer_key, options):
     for user_part, answer_part in zip(user_answer_parts, answer_key_parts):
         # who*that/smart*intelligent
         #print("Comparing user_part:", user_part, " with answer_part:", answer_part)
+        user_part = user_part.strip()
         score = 0
         error = False
         # if answer part contains an asterisk, it means that there are multiple correct answers 
