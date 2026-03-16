@@ -35,6 +35,7 @@ urlpatterns = [
     path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id
     path("video_question_attempts/<int:pk>/process/", views.process_video_question_attempt),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process/", views.process_question_attempt),  # pk is quiz_attempt_id
+    path("question_attempts/<int:pk>/process_timeout/", views.process_timeout),  # pk is quiz_attempt_id
     path("process_live_question_attempt/", views.process_live_question_attempt),  # pk is quiz_attempt_id
     path("start_live_quiz/<int:pk>/", views.start_live_quiz),  # pk is live quiz_id
     path("send_live_question_number/<int:pk>/", views.send_live_question_number),  # pk is live question number

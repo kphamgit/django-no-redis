@@ -36,13 +36,17 @@ class QuestionAttemptSerializer(serializers.ModelSerializer):
   #question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="question_attempts")
  
 class UnitWithQuizzesSerializer(serializers.ModelSerializer):
-    quizzes = QuizSerializer(many=True, read_only=True)
+    # quizzes = QuizSerializer(many=True, read_only=True)
+    quizzes = serializers.SerializerMethodField()  # Use a method field to get quizzes in the desired order
     class Meta:
         model = Unit
         fields = ["id", "category_id", "name", "unit_number", "quizzes"]
         #extra_kwargs = {
         #    "quizzes": {"required": False}  # Make the "questions" field optional
         #}
+    def get_quizzes(self, obj):
+        ordered_quizzes = obj.quizzes.all().order_by("quiz_number")  # Order quizzes by quiz_number
+        return QuizSerializer(ordered_quizzes, many=True).data
              
 class CategoryWithUnitsSerializer(serializers.ModelSerializer):
     units = UnitWithQuizzesSerializer(many=True, read_only=True)

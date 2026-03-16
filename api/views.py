@@ -959,6 +959,149 @@ def process_video_question_attempt(request, pk):
             "error": "Question attempt not found."
         }, status=404)
 
+
+@api_view(["POST"])
+def process_timeout(request, pk):
+    # print("process_timeout called for question_attempt id:", pk, " request.data:", request.data)
+    try: 
+        #print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        # assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        #print(" ******* process_question_attempt, assessment_results:", assessment_results)
+        #print(" process_question_attempt, assessment_results:", assessment_results)
+        
+        # Timeout is considered as an error, so we set error_flag to True and score to 0 for this question attempt
+        error_flag = True
+        score = 0
+        # question attempt for this question should have been created.
+        # look for create_next_question_attempt in the frondend code (TakeQuiz.tsx)
+        question_attempt = QuestionAttempt.objects.get(id=pk)
+        
+        question_attempt.error_flag = error_flag
+        #print(" process_question_attempt, computed error_flag:", question_attempt.error_flag)
+        question_attempt.score = score
+        question_attempt.answer = "timeout"
+        question_attempt.completed = True
+        question_attempt.save()
+        
+        quiz_attempt = question_attempt.quiz_attempt
+        # calculate score for quiz_attempt
+        quiz_attempt.score = quiz_attempt.score + score
+            # add question id to errorneous_questions in quiz_attempt only if not in review state
+            #if not quiz_attempt.review_state:
+                #print(" **** question is errorneous, adding to errorneous_questions array")
+        if (len(quiz_attempt.errorneous_questions) == 0) :
+                    #print("  errorneous_questions is empty, adding  question id")
+            quiz_attempt.errorneous_questions = str(question_attempt.question.id)
+        else:
+                    ##print("  errorneous_questions is not empty, adding question id")
+            quiz_attempt.errorneous_questions += f",{question_attempt.question.id}"
+        
+        quiz_attempt.save()
+        
+        # print(" Finished updating question attempt. Now determining next question...")
+        # print(" check if the quiz attempt is in review state")
+        if quiz_attempt.review_state:
+            #print(" Quiz attempt is in review state. Get the first errorneous question in list if any")
+            #print(" ids of errorneous questions in quiz_attempt.errorneous_questions:", quiz_attempt.errorneous_questions)
+            errorneous_question_ids = [int(qid) for qid in quiz_attempt.errorneous_questions.split(",") if qid.isdigit()]
+            #print(" Parsed errorneous_question_ids as list of integers:", errorneous_question_ids)
+            #print(" first question id in errorneous_question_ids list (if not empty):", errorneous_question_ids[0] if errorneous_question_ids else "No errorneous questions")
+            # get first id in the errorneous_question_ids list
+            if errorneous_question_ids:    # check for not empty or not null
+                #next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).order_by('question_number').first()
+                # next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).first()
+                next_errorneous_question = Question.objects.filter(id = errorneous_question_ids[0]).first()
+                if next_errorneous_question:
+                    # remove errouneous question from the errorneous_question_ids list
+                    #print(" Next errorneous question found with id:", next_errorneous_question.id, " question number:", next_errorneous_question.question_number)
+                    errorneous_questions_array = quiz_attempt.errorneous_questions.split(",")
+                    if str(next_errorneous_question.id) in errorneous_questions_array:
+                        #print(" Removing question id:(for review)", next_errorneous_question.id, " from errorneous_questions_array")
+                        errorneous_questions_array.remove(str(next_errorneous_question.id))
+                        quiz_attempt.errorneous_questions = ",".join(errorneous_questions_array)
+                        quiz_attempt.save()
+                    return Response({
+                        "next_question_id" : next_errorneous_question.id,
+                        "quiz_attempt": { "completed": False, "score": quiz_attempt.score  }
+                    })
+            else:
+                #print(" No more errorneous questions to review. Marking quiz attempt as completed.")
+                quiz_attempt.completion_status = "completed"
+                quiz_attempt.save()
+                return Response({
+                    "quiz_attempt": { "completed": True, "score": quiz_attempt.score  }
+                })
+                    
+        # once you get here, it means quiz_attempt is not in review state  
+        # print(" Quiz attempt not in review state. Let's see if this question is the last question in the quiz...")
+        
+        is_last_question = False
+        next_question_number = question_attempt.question.question_number + 1
+        last_question_in_quiz = question_attempt.quiz_attempt.quiz.questions.order_by('-question_number').first()
+        if (next_question_number > last_question_in_quiz.question_number):
+            is_last_question = True
+        
+        if (is_last_question ):
+            if (quiz_attempt.errorneous_questions is None) or (quiz_attempt.errorneous_questions == ""):
+                # mark quiz attempt as completed
+                #print(" Last question, and errorneous strng is empty, marking quiz attempt as completed...")
+                quiz_attempt.completion_status = "completed"
+                quiz_attempt.save()
+                # not returning a next question means the quiz attempt is completed
+                return Response({
+                    "quiz_attempt": { "completed": True, "score" : quiz_attempt.score  }
+                })
+            else: # get a question id from errorneous list in quiz_attempt
+                #print(" Last question of quiz, but there are errorneous questions to review, proceeding to review...")
+                # mark the review_sate of quiz_attempt as True
+                quiz_attempt.review_state = True
+                quiz_attempt.save()
+                
+                #print("proceed to do the first errorneous question")
+                errorneous_question_ids = [int(qid) for qid in quiz_attempt.errorneous_questions.split(",") if qid.isdigit()]
+                # get first id in the errorneous_question_ids list
+                if errorneous_question_ids:    # check for not empty or not null
+                    next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).order_by('question_number').first()
+                    # remove errouneous question from the errorneous_question_ids list
+                    if next_errorneous_question:
+                        if quiz_attempt.errorneous_questions:
+                            errorneous_questions_array = quiz_attempt.errorneous_questions.split(",")
+                            if str(next_errorneous_question.id) in errorneous_questions_array:
+                                errorneous_questions_array.remove(str(next_errorneous_question.id))
+                                quiz_attempt.errorneous_questions = ",".join(errorneous_questions_array)
+                                quiz_attempt.save()
+                                
+                            return Response({
+                                "next_question_id" : next_errorneous_question.id,
+                                "quiz_attempt": { "completed": False, "score": quiz_attempt.score  }
+                        })
+        else:  # not the last question, proceed to the next question
+            #print(" Not the last question. Proceeding")
+            # increment question number to get next question in the quiz
+            next_question_number = question_attempt.question.question_number + 1
+            #print(" Next question number FOUND (if not, then it's an error):", next_question_number)
+            # get the question in database based on next_question_number and quiz_id
+            next_question = Question.objects.filter(quiz_id=question_attempt.quiz_attempt.quiz_id, question_number=next_question_number).first()
+            if next_question:
+                # return next question data
+                #print(" Found next question id:", next_question.id)
+                return Response({
+                        "next_question_id" : next_question.id,
+                        "quiz_attempt": { "completed": False, "score": quiz_attempt.score  }
+                })
+            else:
+                #print("Finished question attempt. But there's an error retrieving next question.................")
+                # return Response with error
+                return Response({
+                    "error": "Error retrieving next question. Please contact support."
+                }, status=500)
+            
+    except QuestionAttempt.DoesNotExist:
+        return Response({
+            "error": "Question attempt not found."
+        }, status=404)
+
+
 @api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
@@ -980,14 +1123,6 @@ def process_question_attempt(request, pk):
         question_attempt.completed = True
         question_attempt.save()
         
-       
-        """
-         
-        test_data = {'score': 10, 'user_name': 'test_user'}
-        message = json.dumps(test_data)  # Convert entire data to JSON string
-        print("Message to send:", message)
-        settings.R_CONN.publish('notifications', message)
-        """
         quiz_attempt = question_attempt.quiz_attempt
         # calculate score for quiz_attempt
         quiz_attempt.score = quiz_attempt.score + score
@@ -1004,21 +1139,6 @@ def process_question_attempt(request, pk):
                 quiz_attempt.errorneous_questions += f",{question_attempt.question.id}"
                 
             #quiz_attempt.save()
-        
-        """
-        else :  # remove question id from errorneous_questions in quiz_attempt if present
-            #print(" **** question is correct, remove from errorneous_questions array if present")
-            if quiz_attempt.errorneous_questions:
-                errorneous_questions_array = quiz_attempt.errorneous_questions.split(",")
-                if str(question_attempt.question.id) in errorneous_questions_array:
-                    #print(" Removing question id:(correct results)", question_attempt.question.id, " from errorneous_questions_array")
-                    errorneous_questions_array.remove(str(question_attempt.question.id))
-                    quiz_attempt.errorneous_questions = ",".join(errorneous_questions_array)
-                    #quiz_attempt.save()
-                    
-            #print(" Errorneous questions after removal (if any):", quiz_attempt.errorneous_questions)
-            #print(" right now, quiz_attempt.errorneous_questions should have been updated")
-        """
         
         quiz_attempt.save()
         
@@ -1059,9 +1179,6 @@ def process_question_attempt(request, pk):
                 })
                     
         # once, you get here, it means quiz_attempt is not in review state  
-                    
-                    
-                    
         #print(" Quiz attempt not in review state. Let's see if this question is the last question in the quiz...")
         
         is_last_question = False
@@ -1093,8 +1210,6 @@ def process_question_attempt(request, pk):
                 if errorneous_question_ids:    # check for not empty or not null
                     next_errorneous_question = Question.objects.filter(id__in=errorneous_question_ids).order_by('question_number').first()
                     # remove errouneous question from the errorneous_question_ids list
-    
-                            
                     if next_errorneous_question:
                         if quiz_attempt.errorneous_questions:
                             errorneous_questions_array = quiz_attempt.errorneous_questions.split(",")
