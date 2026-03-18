@@ -650,12 +650,12 @@ class ItemDeleteView(generics.DestroyAPIView):
     def get_queryset(self):
         id = self.kwargs.get('pk')
         # retrieve data_type from query parameters
-        print("ItemDeleteView .... request data:", self.request)
+        # print("ItemDeleteView .... request data:", self.request)
         
         data_type = self.request.query_params.get('data_type', 'question').lower() # Default to 'question' if not provided
         #data_type = self.request.data.get('data_type', 'Question') # Default to 'Question' if not provided
         queryset = None
-        print("ItemDeleteView get_queryset, data_type:", data_type, ", id:", id)
+        # print("ItemDeleteView get_queryset, data_type:", data_type, ", id:", id)
         if data_type == 'question':
             queryset = Question.objects.filter(id=id) 
         elif data_type == 'quiz':
@@ -671,7 +671,7 @@ class ItemDeleteView(generics.DestroyAPIView):
             queryset = VideoSegment.objects.filter(id=id)
             
         
-        print("ItemDeleteView get_queryset, queryset:", queryset)
+        # print("ItemDeleteView get_queryset, queryset:", queryset)
         
         return queryset
     

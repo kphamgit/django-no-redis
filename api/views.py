@@ -827,7 +827,8 @@ def create_question_attempt(request, pk):
 def process_live_question_attempt(request):
     try: 
         #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
-        assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        user_answer = request.data.get('user_answer', '')
+        assessment_results =  check_answer(request.data.get('format', ''), user_answer, request.data.get('answer_key', ''))
         #print(" type of assessment_results:", type(assessment_results))
         
         """
@@ -886,7 +887,7 @@ def process_live_question_attempt(request):
         # update live_total_score in Redis store using settings.R_CONN.execute_command with RedisJSON command to update the live_total_score field in the user document in Redis store
         settings.R_CONN.execute_command('JSON.SET', f"user:{from_user}", '$.live_total_score', json.dumps(live_total_score_int))
         #print(" FINALLY live_total_score to be published for user", from_user, ":", live_total_score_int)
-        score_data = {'message_type': 'live_score', 'content': {"score": score, "live_total_score": live_total_score_int }, 'user_name': from_user}
+        score_data = {'message_type': 'live_score', 'content': {"score": score, "live_total_score": live_total_score_int , 'live_user_answer': user_answer }, 'user_name': from_user,}
         # notify other users via Redis channel 
         message = json.dumps(score_data)  # Convert entire data to JSON string because Redis only accepts strings, and we want to send a structured message that includes the score, live_total_score, and user_name, so we use a dictionary and convert it to a JSON string before sending it to Redis.
         # print("Publishing live score to Redis channel 'notifications':", message)
