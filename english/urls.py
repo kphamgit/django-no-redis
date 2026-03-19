@@ -57,6 +57,9 @@ urlpatterns = [
     path("question/renumber", views.QuestionRenumberView.as_view(), name="question-renumber"),
     path("video_segment/renumber", views.VideoSegmentRenumberView.as_view(), name="question-renumber"),
 
-
+    path("get_recordings/", views.get_recordings, name="get-recordings"),
+    path("delete-audio/", views.delete_audio, name="delete-audio"),
+    path("batch-delete-files/", views.batch_delete_files, name="batch-delete-files"),
+ 
 ]
 

@@ -17,6 +17,10 @@ import azure.cognitiveservices.speech as speechsdk
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from django.conf import settings
 
+from django.views.decorators.csrf import csrf_exempt
+
+import json
+
 # Create your views here.
    
 #  VIEWS
@@ -700,3 +704,124 @@ def move_quiz(request, pk):
             "error": "Unit not found for the given new_unit_id."
         }, status=404)
     
+def get_audio_url(file_key):
+    # Initialize the client with the v4 signature config
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+        config=Config(signature_version='s3v4') # ⬅️ Add this line
+    )
+
+    url = s3_client.generate_presigned_url(
+        'get_object',
+        Params={
+            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+            'Key': file_key
+        },
+        ExpiresIn=3600
+    )
+    return url
+    
+@csrf_exempt
+def get_recordings(request):
+    # List objects in the S3 bucket under the "audios/recordings/" prefix
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME
+    )
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    prefix = "audios/recordings/"
+    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+    recordings = []
+    for obj in response.get('Contents', []):
+        file_key = obj['Key']
+        #print("Found audio file in S3 with key:", file_key)
+        url = get_audio_url(file_key)
+        recordings.append({
+            'file_key': file_key,
+            'audio_url': url
+        })
+        
+    return JsonResponse({'recordings': recordings})
+
+@csrf_exempt
+def delete_audio(request):
+    try:
+        # Check if the request body is JSON
+        if request.content_type == 'application/json':
+            #print("delete_audio received JSON request body:", request.body)
+            data = json.loads(request.body)
+            file_key = data.get('file_key')
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            #print("delete_audio received non-JSON request, using POST parameters:", request.POST)
+            file_key = request.POST.get('file_key')
+
+        #print("delete_audio called with file_key:", file_key)
+
+        if not file_key:
+            return JsonResponse({'error': 'file_key parameter is required'}, status=400)
+
+        # Initialize S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME
+        )
+        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+
+        # Delete the object from S3
+        s3_client.delete_object(Bucket=bucket_name, Key=file_key)
+
+        return JsonResponse({'status': f'Audio file with key {file_key} deleted successfully'})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def batch_delete_files(request):
+    try:
+        # Parse the JSON payload
+        # print("batch_delete_files called body:", request.body)
+        file_keys = json.loads(request.body).get('file_keys', [])
+        # print("batch_delete_files received file_keys:", file_keys)
+
+        if not file_keys:
+            return JsonResponse({'error': 'No file keys provided'}, status=400)
+
+        # Initialize the S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME
+        )
+
+        # Specify the bucket name
+        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+
+        # Prepare the list of objects to delete
+        objects_to_delete = [{'Key': key} for key in file_keys]
+
+        # Perform the batch delete
+        response = s3_client.delete_objects(
+            Bucket=bucket_name,
+            Delete={
+                'Objects': objects_to_delete,
+                'Quiet': True  # Set to False to get detailed info about deleted objects
+            }
+        )
+
+        # Wrap the response in a JsonResponse
+        return JsonResponse({'status': 'Batch delete completed', 'response': response})
+
+    except Exception as e:
+        # Handle any exceptions and return an error response
+        return JsonResponse({'error': str(e)}, status=500)

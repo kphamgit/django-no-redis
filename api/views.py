@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-import json
+
 from django.utils.decorators import method_decorator
 import os
 
@@ -201,67 +201,6 @@ def get_audio_url(file_key):
         ExpiresIn=3600
     )
     return url
-
-@csrf_exempt
-def get_recordings(request):
-    # List objects in the S3 bucket under the "audios/recordings/" prefix
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME
-    )
-    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-    prefix = "audios/recordings/"
-    response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
-
-    recordings = []
-    for obj in response.get('Contents', []):
-        file_key = obj['Key']
-        #print("Found audio file in S3 with key:", file_key)
-        url = get_audio_url(file_key)
-        recordings.append({
-            'file_key': file_key,
-            'audio_url': url
-        })
-        
-    return JsonResponse({'recordings': recordings})
-
-@csrf_exempt
-def delete_audio(request):
-    try:
-        # Check if the request body is JSON
-        if request.content_type == 'application/json':
-            #print("delete_audio received JSON request body:", request.body)
-            data = json.loads(request.body)
-            file_key = data.get('file_key')
-        else:
-            # Handle form-data or x-www-form-urlencoded
-            #print("delete_audio received non-JSON request, using POST parameters:", request.POST)
-            file_key = request.POST.get('file_key')
-
-        #print("delete_audio called with file_key:", file_key)
-
-        if not file_key:
-            return JsonResponse({'error': 'file_key parameter is required'}, status=400)
-
-        # Initialize S3 client
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_S3_REGION_NAME
-        )
-        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-
-        # Delete the object from S3
-        s3_client.delete_object(Bucket=bucket_name, Key=file_key)
-
-        return JsonResponse({'status': f'Audio file with key {file_key} deleted successfully'})
-
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
-
 
 @csrf_exempt
 def upload_audio(request):
