@@ -3,7 +3,8 @@ from django.shortcuts import render
 from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer
-from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer
+from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
+    CategoryWithUnitsSerializer1, LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
 from .serializers import UserSerializer
 from django.contrib.auth.models import User
 from rest_framework import generics
@@ -397,6 +398,54 @@ class QuizRetrieveView(generics.RetrieveAPIView):
         quiz_id = self.kwargs.get('pk')
         queryset = Quiz.objects.filter(id=quiz_id)
         return queryset
+    
+class LevelRetrieveView(generics.RetrieveAPIView):
+    # serializer_class = LevelSerializer
+    serializer_class = LevelWithCategoriesSerializer   # only return id field
+    """
+     levels = Level.objects.order_by('level_number')
+    serializer = LevelWithCategoriesSerializer(levels, many=True)
+    print("******** level_list serializer.data:", serializer.data)
+    """
+
+    def get_queryset(self):
+        level_id = self.kwargs.get('pk')
+        queryset = Level.objects.filter(id=level_id).prefetch_related('categories')
+        print("LevelRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
+        print("LevelRetrieveView ******* get_queryset, queryset:", queryset)
+        return queryset
+   
+class CategoryRetrieveView(generics.RetrieveAPIView):
+    print("CategoryRetrieveView called....")
+    # serializer_class = LevelSerializer
+    serializer_class = CategoryWithUnitsSerializer   # only return id field
+    """
+     levels = Level.objects.order_by('level_number')
+    serializer = LevelWithCategoriesSerializer(levels, many=True)
+    print("******** level_list serializer.data:", serializer.data)
+    """
+
+    def get_queryset(self):
+        category_id = self.kwargs.get('pk')
+        print("CategoryRetrieveView ******* get_queryset called, category_id:", category_id)
+        queryset = Category.objects.filter(id=category_id).prefetch_related('units')
+        print("CategoryRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
+        print("CategoryRetrieveView ******* get_queryset, queryset:", queryset)
+        return queryset
+   
+class UnitRetrieveView(generics.RetrieveAPIView):
+    print("UnitRetrieveView called....")
+    # serializer_class = LevelSerializer
+    serializer_class = UnitWithQuizzesSerializer   # only return id field
+
+    def get_queryset(self):
+        unit_id = self.kwargs.get('pk')
+        print("UnitRetrieveView ******* get_queryset called, category_id:", unit_id)
+        queryset = Unit.objects.filter(id=unit_id).prefetch_related('quizzes')
+        print("UnitRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
+        print("UnitRetrieveView ******* get_queryset, queryset:", queryset)
+        return queryset
+   
    
 class VideoSegmentRetrieveView(generics.RetrieveAPIView):
     #serializer_class = VideoSegmentSerializer
@@ -681,7 +730,7 @@ class ItemDeleteView(generics.DestroyAPIView):
     
 @api_view(["POST"])
 def move_quiz(request, pk):
-    print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
+    # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
     try:
         quiz = Quiz.objects.get(id=pk)
         new_unit_id = request.data.get('new_unit_id', None)

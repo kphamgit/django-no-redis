@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from rest_framework import generics
 from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
      UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer
-from english.serializers import QuestionSerializer 
+from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment
 from rest_framework.decorators import api_view
@@ -268,7 +268,7 @@ def level_list(request):
     #print("level_list called")
     levels = Level.objects.order_by('level_number')
     serializer = LevelWithCategoriesSerializer(levels, many=True)
-    #print("level_list serializer.data:", serializer.data)
+    print("******** level_list serializer.data:", serializer.data)
     return Response(serializer.data)
     
 
@@ -729,7 +729,7 @@ def create_question_attempt(request, pk):
     # body contain question id
     # get body data
     try:
-        # print("******** create_question_attempt called for quiz_attempt id:", pk, " request.data:", request.data)
+        print("******** create_question_attempt called for quiz_attempt id:", pk, " request.data:", request.data)
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         question_id = request.data.get('question_id', None)
         #print("create_question_attempt for quiz_attempt id:", pk, " question_id:", question_id)
@@ -748,7 +748,7 @@ def create_question_attempt(request, pk):
             question=question,
             completed=False,
         )
-        #print("Created QuestionAttempt is :", question_attempt.id, "for Question id:", question.id)
+        print("Created QuestionAttempt is :", question_attempt.id, "for Question id:", question.id)
         question_serializer = QuestionSerializer(question)
         return Response({
             "quiz_attempt_id": pk,

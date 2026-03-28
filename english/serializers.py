@@ -45,7 +45,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class LevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Level
-        fields = ["id", "name", "level_number"]
+        fields = ["id", "name", "level_number", "categories"]
         
 class UserSerializer(serializers.ModelSerializer):
     class Meta:

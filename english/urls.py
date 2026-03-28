@@ -34,12 +34,17 @@ urlpatterns = [
     path("quizzes/<int:pk>/video_segments/retrieve_by_segment_number/<int:segment_number>/", views.VideoSegmentRetrieveByNumberView.as_view(), name="video-segment-retrieve-by-number"),
     path("video_segments/retrieve/<int:pk>/", views.VideoSegmentRetrieveView.as_view(), name="video-segment-retrieve"),
     
+    # only retrieve level info, such as level name and number, without categories 
+    path("levels/<int:pk>/", views.LevelRetrieveView.as_view(), name="level-retrieve"),
+    path("categories/<int:pk>/", views.CategoryRetrieveView.as_view(), name="category-retrieve"),
+    path("units/<int:pk>/", views.UnitRetrieveView.as_view(), name="unit-retrieve"),
+    
     # EDIT views
-    path("levels/<int:pk>/", views.LevelEditView.as_view(), name="level-edit"),
-    path("categories/<int:pk>/", views.CategoryEditView.as_view(), name="category-edit"),
+    path("levels/<int:pk>/edit", views.LevelEditView.as_view(), name="level-edit"),
+    path("categories/<int:pk>/edit", views.CategoryEditView.as_view(), name="category-edit"),
     path("questions/<int:pk>/", views.QuestionEditView.as_view(), name="question-edit"),
     path("quizzes/<int:pk>/", views.QuizEditView.as_view(), name="quiz-edit"),
-    path("units/<int:pk>/", views.UnitEditView.as_view(), name="unit-edit"),
+    path("units/<int:pk>/edit", views.UnitEditView.as_view(), name="unit-edit"),
     path("video_segments/<int:pk>/", views.VideoSegmentEditView.as_view(), name="video-segment-edit"),
     # end EDIT views
     

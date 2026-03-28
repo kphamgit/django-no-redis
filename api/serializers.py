@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Note, Category, Level, Unit, Quiz, Question, QuestionAttempt, QuizAttempt
-from english.serializers import QuizSerializer, VideoSegmentSerializer
+from english.serializers import QuizSerializer, VideoSegmentSerializer, UnitSerializer
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -52,7 +52,17 @@ class CategoryWithUnitsSerializer(serializers.ModelSerializer):
     units = UnitWithQuizzesSerializer(many=True, read_only=True)
     class Meta:
         model = Category
-        fields = ["id", "category_id", "name", "category_number", "units"]
+        fields = ["id", "level_id", "name", "category_number", "units"]
+        extra_kwargs = {
+            "units": {"required": False}  # Make the "questions" field optional
+        }
+        
+class CategoryWithUnitsSerializer1(serializers.ModelSerializer):
+    print("CategoryWithUnitsSerializer1 is being defined")
+    units = UnitSerializer(many=True, read_only=True)
+    class Meta:
+        model = Category
+        fields = ["id", "level_id", "name", "category_number", "units"]
         extra_kwargs = {
             "units": {"required": False}  # Make the "questions" field optional
         }
