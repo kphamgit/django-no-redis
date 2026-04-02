@@ -111,3 +111,44 @@ class QuestionAttempt(models.Model):
     def __str__(self):
         return f"Attempt for {self.question.question_number}"
     
+class DictEntry(models.Model):
+    head_word = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.head_word
+    
+class PartOfSpeech(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    pron_code = models.CharField(max_length=50, blank=True, null=True)  # british pronunciation code
+    amevar_pron = models.CharField(max_length=50, blank=True, null=True)  # american variant pronunciation code
+    frequency = models.CharField(max_length=20, blank=True, null=True)
+    grammar = models.CharField(max_length=100, blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+    
+class Sense(models.Model):
+    pos = models.ForeignKey(PartOfSpeech, on_delete=models.CASCADE, related_name="senses")
+    sense_number = models.SmallIntegerField(default=0)
+    definition = models.TextField(max_length=1000, blank=True, null=True)
+    def_translation = models.TextField(max_length=1000, blank=True, null=True)
+    cross_reference = models.CharField(max_length=400, blank=True, null=True)  # e.g., "title/head_word"
+    # cross_reference example:  be rewarded (with something)/be-rewarded-with-something
+    grammar = models.CharField(max_length=80, blank=True, null=True)
+    related_words = models.CharField(max_length=200, blank=True, null=True)  # e.g., "run, running, ran"
+
+    def __str__(self):
+        return f"{self.pos.name} - Sense {self.sense_number}"
+    
+class Example(models.Model):
+    sense = models.ForeignKey(Sense, on_delete=models.CASCADE, related_name="examples")
+    example_number = models.SmallIntegerField(default=0)
+    difficulty_level = models.SmallIntegerField(default=0)  # e.g., 0 for easy, 1 for medium..5 for hard
+    sentence = models.TextField(max_length=1000, blank=True, null=True)
+    translation = models.TextField(max_length=1200, blank=True, null=True)
+    grammar_point = models.CharField(max_length=100, blank=True, null=True)  # e.g., "be rewarded (with something)"
+
+    def __str__(self):
+        return f"{self.sense.lcode_entry.head_word} - Example {self.example_number}"
+    
+    
