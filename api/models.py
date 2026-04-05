@@ -115,8 +115,12 @@ class DictEntry(models.Model):
     head_word = models.CharField(max_length=100)
     source = models.CharField(max_length=60, blank=True, null=True)  # e.g., "longman", "ho-ngoc-duc-stardict"
 
+    class Meta:
+        unique_together = [("head_word", "source")]
+
     def __str__(self):
-        return self.head_word
+        # return head_word and source
+        return self.head_word + " (" + self.source + ")"
     
 class PartOfSpeech(models.Model):
     dict_entry = models.ForeignKey(DictEntry, on_delete=models.CASCADE, related_name="part_of_speeches")    
