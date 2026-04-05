@@ -112,13 +112,15 @@ class QuestionAttempt(models.Model):
         return f"Attempt for {self.question.question_number}"
     
 class DictEntry(models.Model):
-    head_word = models.CharField(max_length=100, unique=True)
+    head_word = models.CharField(max_length=100)
+    source = models.CharField(max_length=60, blank=True, null=True)  # e.g., "longman", "ho-ngoc-duc-stardict"
 
     def __str__(self):
         return self.head_word
     
 class PartOfSpeech(models.Model):
-    name = models.CharField(max_length=50, unique=True)
+    dict_entry = models.ForeignKey(DictEntry, on_delete=models.CASCADE, related_name="part_of_speeches")    
+    name = models.CharField(max_length=50)
     pron_code = models.CharField(max_length=50, blank=True, null=True)  # british pronunciation code
     amevar_pron = models.CharField(max_length=50, blank=True, null=True)  # american variant pronunciation code
     frequency = models.CharField(max_length=20, blank=True, null=True)
@@ -139,6 +141,14 @@ class Sense(models.Model):
 
     def __str__(self):
         return f"{self.pos.name} - Sense {self.sense_number}"
+    
+class Idiom(models.Model):
+    pos = models.ForeignKey(PartOfSpeech, on_delete=models.CASCADE, related_name="idioms")
+    phrase = models.TextField(max_length=700, blank=True, null=True)
+    translation = models.TextField(max_length=1000, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.pos.name} - Idiom {self.phrase}"
     
 class Example(models.Model):
     sense = models.ForeignKey(Sense, on_delete=models.CASCADE, related_name="examples")

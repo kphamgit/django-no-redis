@@ -1,6 +1,6 @@
 from rest_framework import serializers
 #from .models import Note
-from api.models import Unit, Quiz, Question, Category, Level, VideoSegment
+from api.models import Unit, Quiz, Question, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
 from django.contrib.auth.models import User
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -84,3 +84,82 @@ class VideoSegmentIdSerializer(serializers.ModelSerializer):
         model = VideoSegment
         fields = ['id']  # Only include the 'id' field
 
+
+class ExampleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Example
+        fields = ["id", "sense_id", "example_number", "difficulty_level", "sentence", "translation", "grammar_point"]
+        extra_kwargs = {
+            "sense_id": {"required": False},  # Make the "sense_id" field optional
+            # because sense_id will be set in the create method of SenseSerializer when creating Example objects from the nested data
+        }  
+
+class SenseSerializer(serializers.ModelSerializer):
+    examples = ExampleSerializer(many=True, required=False)  # Use the nested serializer for examples, and make it optional
+    class Meta:
+        model = Sense
+        fields = ["id", "pos_id", "sense_number", "definition", "cross_reference", "grammar", "related_words", "examples"]
+        extra_kwargs = {
+            "pos_id": {"required": False},  # Make the "pos_id" field optional
+            # because pos_id will be set in the create method of PartOfSpeechSerializer when creating Sense objects from the nested data
+        }
+        
+    def create(self, validated_data):
+        examples_data = validated_data.pop("examples", [])   # pop should happend before creating the Sense object,
+        # note: pop remove the "examples" key from validated_data, so that it won't cause an error
+        # when creating the Sense object with the remaining validated_data
+        sense = Sense.objects.create(**validated_data) 
+        # now use the examples_data (popped from validated_data above) to create Example objects,
+        for example_data in examples_data:
+            Example.objects.create(sense=sense, **example_data)
+            
+        return sense
+    
+class IdiomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Idiom
+        fields = ["id", "pos_id", "phrase", "translation"]
+        
+        
+#   fields = ["id", "head_word", "hyphenation", "pron_code", "amevar_pron", "frequency", "part_of_speech", "grammar", "senses"]
+class PartOfSpeechSerializer(serializers.ModelSerializer):
+    senses = SenseSerializer(many=True)
+    idioms = IdiomSerializer(many=True, required=False)  # Use the nested serializer for idioms, and make it optional
+    class Meta:
+        model = PartOfSpeech
+        unique_together = ("dict_entry", "name")  # Ensure that the combination of dict_entry and name is unique
+        fields = ["name", "dict_entry_id", "pron_code", "amevar_pron", "frequency", "grammar", "senses", "idioms"]
+        extra_kwargs = {
+            "pron_code": {"required": False},
+        }
+    
+    def create(self, validated_data):
+        senses_data = validated_data.pop("senses", [])
+        idioms_data = validated_data.pop("idioms", [])
+        pos = PartOfSpeech.objects.create(**validated_data)
+        for sense_data in senses_data:
+            sense_data['pos'] = pos  # set the pos field of sense_data to the PartOfSpeech object we just created
+            SenseSerializer().create(sense_data)
+        
+        for idiom_data in idioms_data:
+            idiom_data['pos'] = pos
+            IdiomSerializer().create(idiom_data)
+            
+        return pos
+    
+    
+class DictEntrySerializer(serializers.ModelSerializer):
+    part_of_speeches = PartOfSpeechSerializer(many=True)  # Use the nested serializer
+    class Meta:
+        model = DictEntry
+        fields = ["head_word", "source", "part_of_speeches"]
+   
+    def create(self, validated_data):
+        part_of_speeches_data = validated_data.pop("part_of_speeches", [])
+        dict_entry = DictEntry.objects.create(**validated_data)
+        for pos_data in part_of_speeches_data:
+            pos_data['dict_entry'] = dict_entry
+            PartOfSpeechSerializer().create(pos_data)
+        return dict_entry
+    
+    

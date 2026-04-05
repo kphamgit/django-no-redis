@@ -65,6 +65,13 @@ urlpatterns = [
     path("get_recordings/", views.get_recordings, name="get-recordings"),
     path("delete-audio/", views.delete_audio, name="delete-audio"),
     path("batch-delete-files/", views.batch_delete_files, name="batch-delete-files"),
+    
+    #populate-viet-dictionary
+    path("populate-viet-dictionary/", views.populate_viet_dictionary, name="populate-viet-dictionary"),
+    path("read-dictionary/", views.read_dictionary, name="read-dictionary"),
+    # populate-longman-dictionary
+    path("delete-dictionary-entry/", views.delete_dictionary_entry, name="delete-dictionary-entry"),
+    path("populate-longman-dictionary/", views.populate_longman_dictionary, name="populate-longman-dictionary"),
  
 ]
 

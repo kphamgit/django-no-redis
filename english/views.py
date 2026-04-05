@@ -1,8 +1,8 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
-    LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer
+    LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
     CategoryWithUnitsSerializer1, LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
 from .serializers import UserSerializer
@@ -10,6 +10,9 @@ from django.contrib.auth.models import User
 from rest_framework import generics
 from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated
+
+from .utils import read_viet_dict
+from .utils import scrape_longman_url
 
 import boto3
 from botocore.config import Config # ⬅️ Import this
@@ -874,3 +877,342 @@ def batch_delete_files(request):
     except Exception as e:
         # Handle any exceptions and return an error response
         return JsonResponse({'error': str(e)}, status=500)
+
+def populate_entry(word):
+    # make a list of 
+    vdict_entries = read_viet_dict(word)
+    # iterate throught the part of speech keys for the word
+   
+   
+    part_of_speech_list = []
+    for part_of_speech in vdict_entries[word].keys():
+        part_of_speech_dict = {}
+        part_of_speech_dict["name"] = part_of_speech
+        senses_list = []
+        for i, sense in enumerate(vdict_entries[word][part_of_speech]["senses"], start=1):
+            sense_dict = {}
+            sense_dict['definition'] = sense.get('def', '')
+            sense_dict['sense_number'] = i
+            
+            examples = sense.get("examples", [])
+            examples_list = []
+            if examples:
+                for example in examples:
+                    example_dict = {}
+                    example_dict["sentence"] = example
+                    examples_list.append(example_dict)
+            
+            if examples_list:
+                sense_dict['examples'] = examples_list
+                    
+            senses_list.append(sense_dict)
+                    
+        part_of_speech_dict['senses'] = senses_list
+        
+        # idioms
+        idioms_list = []
+        for i, idiom in enumerate(vdict_entries[word][part_of_speech]["idioms"], start=1):
+            idiom_dict = {}
+            idiom_dict['phrase'] = idiom.get('phrase', '')
+            idiom_dict['translation'] = idiom.get('translation', '')
+            
+            idioms_list.append(idiom_dict)
+                    
+        part_of_speech_dict['idioms'] = idioms_list
+        
+        part_of_speech_list.append(part_of_speech_dict)
+    
+        return part_of_speech_list
+    
+@csrf_exempt
+def delete_dictionary_entry(request):
+    try:
+        # Check if the request body is JSON
+        # get word from request body
+        if request.content_type == 'application/json':
+            print("delete_dictionary_entry received JSON request body:", request.body)
+            data = json.loads(request.body)
+            word = data.get('word')
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            print("delete_dictionary_entry received non-JSON request, using POST parameters:", request.POST)
+            word = request.POST.get('word')
+        
+        DictEntry.objects.filter(head_word=word).delete()
+        
+        return JsonResponse({'status': f'Dictionary entry for word "{word}" deleted successfully.'})
+       
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+    
+@csrf_exempt
+def populate_viet_dictionary(request):
+    try:
+        # Check if the request body is JSON
+        # get word from request body
+        if request.content_type == 'application/json':
+            # print("read_viet_dictionary received JSON request body:", request.body)
+            data = json.loads(request.body)
+            word = data.get('word')
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            # print("read_viet_dictionary received non-JSON request, using POST parameters:", request.POST)
+            word = request.POST.get('word')
+        
+        part_of_speech_list = populate_entry(word)
+        for_serialization = {}    
+        for_serialization['head_word'] = word
+        for_serialization['source'] = "ho-ngoc-duc-stardict"
+        for_serialization['part_of_speeches'] = part_of_speech_list
+        #print("**************************************************")
+        #print(json.dumps(for_serialization, indent=4, ensure_ascii=False))
+        
+        serializer = DictEntrySerializer(data=for_serialization)
+        
+        
+        if serializer.is_valid():
+            serializer.save()
+        else:
+            print("Serializer errors:", serializer.errors)
+        
+        return JsonResponse({'status': 'Vietnamese dictionary populated successfully.'})
+       
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def read_dictionary(request):
+    try:
+        # Check if the request body is JSON
+        # get word from request body
+        if request.content_type == 'application/json':
+            # print("read_dictionary received JSON request body:", request.body)
+            data = json.loads(request.body)
+            word = data.get('word')
+            source = data.get('source', None)
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
+            word = request.POST.get('word')
+            source = request.POST.get('source', None)
+        
+        if (source):
+            query = DictEntry.objects.filter(head_word__icontains=word, source=source) 
+            # print("read_dictionary, query:", query)
+            serializer = DictEntrySerializer(query, many=True)
+        
+            # print("read_dictionary, serializer.data:", serializer.data)
+        
+            return JsonResponse(serializer.data, safe=False)
+        else:   # return error asking to specify source if source is not provided
+            return JsonResponse({'error': 'Source dictionary is required when searching for a dictionary entry.'}, status=400)
+        
+      
+        #return JsonResponse({'status': 'Dictionary read successfully.', 'results': list(query.values())})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+        
+    """
+     # exact match — raises DoesNotExist if not found
+        query = DictEntry.objects.get(head_word=word)
+        serializer = DictEntrySerializer(query)
+
+        # or, case-insensitive, returns None if not found
+        #query = DictEntry.objects.filter(head_word__icontains=word).first()
+        
+        return JsonResponse(serializer.data)
+    """
+    
+@csrf_exempt
+def  populate_longman_dictionary(request):
+    try:
+        # Check if the request body is JSON
+        # get word from request body
+        if request.content_type == 'application/json':
+            print("read_dictionary received JSON request body:", request.body)
+            data = json.loads(request.body)
+            word = data.get('word')
+        else:
+            # Handle form-data or x-www-form-urlencoded
+            print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
+            word = request.POST.get('word')
+            
+        target_url = "https://www.ldoceonline.com/dictionary/" + word # Change this to your dictionary URL
+        soup = scrape_longman_url(target_url)
+        
+        dict_entry = soup.find_all('span', class_ = lambda x: x and 'dictentry' in x)
+        for_serialization = {}
+        for_serialization['head_word'] = word
+        for_serialization['source'] = "longman"
+        part_of_speeches_list = []
+        # go through each dict entry and print the html of the div with class "POS"
+        # create a python dictionary to store the head word, part of speech for serialization later
+        for entry in dict_entry:
+            ldoce_section = entry.find('span', class_ = lambda x: x and 'ldoceEntry Entry' in x)
+            # print(" found ldoce section")
+           
+            if ldoce_section:
+                part_of_speech = ldoce_section.find('span', class_ = lambda x: x and 'POS' in x)
+                if part_of_speech:
+                    part_of_speech_dict = {}
+                    #print(part_of_speech.prettify())
+                    part_of_speech_dict['name'] = part_of_speech.get_text(strip=True)
+                    # name | pron_code | amevar_pron | frequency | grammar | dict_entry_id 
+                pron_code = ldoce_section.find('span', class_ = lambda x: x and 'PRON' in x)
+                if pron_code:
+                    part_of_speech_dict['pron_code'] = pron_code.get_text(strip=True)
+                    
+                american_pron_code = ldoce_section.find('span', class_ = lambda x: x and 'AMEVARPRON' in x)
+                if american_pron_code:
+                    part_of_speech_dict['amevar_pron'] = american_pron_code.get_text(strip=True)
+                   
+                grammar = ldoce_section.find('span', class_ = lambda x: x and 'GRAM' in x)
+                if grammar:
+                    # print("GRAM", grammar.get_text(strip=True))
+                    # get the text of grammar and remove all extra spaces and newlines,
+                    # also remove the surrounding square brackets if they exist
+                    part_of_speech_dict['grammar'] = grammar.get_text(strip=True).replace('\n', ' ').replace('[', '').replace(']', '').strip()
+                    
+                frequency = ldoce_section.find('span', class_ = lambda x: x and 'FREQ' in x)
+                if frequency:
+                    # print(frequency.prettify())
+                    part_of_speech_dict['frequency'] = frequency.get_text(strip=True)
+                     
+                senses = ldoce_section.find_all('span', class_ = lambda x: x and 'Sense' in x)
+                senses_list = []
+                for sense in senses:
+                    # print("SENSE:", sense.prettify())
+                    sense_dict = {}
+                    
+                    sense_number = sense.find('span', class_ = lambda x: x and 'sensenum span' in x)
+                    if sense_number:
+                        # print("sense_number:", sense_number.get_text(strip=True))
+                        sense_dict['sense_number'] = sense_number.get_text(strip=True)
+                    
+                    definition = sense.find('span', class_ = lambda x: x and 'DEF' in x)
+                    if definition:
+                        # print("definition:", definition.get_text(strip=True))
+                        sense_dict['definition'] = definition.get_text(strip=False)
+                    
+                    related_words = sense.find_all('span', class_ = lambda x: x and 'RELATEDWD' in x)
+                    if related_words:
+                        related_words_str = ''
+                        for related_word in related_words:
+                            #print("related_word:", related_word.get_text(strip=True))
+                            # strip non printable characters from related_word text and 
+                            text = related_word.get_text(strip=True)
+                            for c in text:
+                                if ord(c) > 127:
+                                    print(repr(c), hex(ord(c)))
+                            # print("related_word text before stripping non-printable characters:", text)
+                            text = text.replace('\u2192', '').replace(',','') 
+                            # remove right arrow character and any commas from the text
+                            # print("related_word text after stripping non-printable characters:", text)
+                            # if the text is not empty after stripping, add it to the related_words string, separated by a comma
+                            if (text):
+                                if related_words_str:
+                                    related_words_str += '/' + text
+                                else:
+                                    related_words_str = text
+                                    
+                            #related_words.append(text)
+                            #related_words_list.append(related_word.get_text(strip=True))
+                        #print("related_words_str is:", related_words_str)
+                        sense_dict['related_words'] = related_words_str
+                        
+                    #examples = sense.find_all('span', class_ = lambda x: x and 'EXAMPLE' in x)
+                    examples = sense.find_all('span', class_=lambda x: x and 'EXAMPLE' in x, recursive=False)
+                    examples_list = []
+                    examples_length = 0
+                    if examples:
+                        #for example in examples:
+                        for i, example in enumerate(examples, start=1):
+                            example_dict = {}
+                            example_dict['example_number'] = i
+                            example_dict['sentence'] = example.get_text(strip=True)
+                            example_dict['translation'] = None
+                            example_dict['grammar_point'] = None
+                            examples_list.append(example_dict)
+                            # 
+                        sense_dict['examples'] = examples_list
+                        examples_length = len(examples_list)
+                        
+                    #find Gramar Example
+                    
+                    gram_examples = sense.find_all('span', class_ = lambda x: x and 'GramExa' in x)
+                    if gram_examples:
+                        for i, gram_example in enumerate(gram_examples, start=examples_length + 1):
+                            example_dict = {}
+                            # print("gram_example:", gram_example.get_text(strip=True))
+                            # get the first span as child of gram_example which contains the form of the grammar point, e.g., "be rewarded (with something)"
+                            grammar_point_span = gram_example.find('span')
+                            if grammar_point_span:
+                                # print("grammar_point_span:", grammar_point_span.get_text(strip=True))
+                                example_dict['grammar_point'] = grammar_point_span.get_text(strip=True)
+                        
+                            # get the EXAMPLE itself
+                            example_span = gram_example.find('span', class_ = lambda x: x and 'EXAMPLE' in x)
+                            if example_span:
+                                # print("example_span:", example_span.get_text(strip=True))
+                                example_dict['sentence'] = example_span.get_text(strip=True)
+                                example_dict['example_number'] = i
+                                example_dict['translation'] = None
+                            
+                            examples_list.append(example_dict)
+                    
+                            
+                    # print("examples_list:", examples_list)
+                            
+                    sense_dict['examples'] = examples_list
+                    
+                    cross_reference = sense.find('span', class_ = lambda x: x and 'Crossref' in x)
+                    if cross_reference:
+                        # print("cross_reference:", cross_reference)
+                        # look for the link inside the cross reference span and get the text of the link
+                        cross_reference_link = cross_reference.find('a')
+                        if cross_reference_link:
+                            # look for span with class "REFHWD" inside the link and get the text of that span as the head word of the cross reference
+                            cross_ref_head_word_title = cross_reference_link.find('span', class_ = lambda x: x and 'REFHWD' in x)
+                            # print("ref_head_word_title:", cross_ref_head_word_title.get_text(strip=True))
+                            # be rewarded (with something)
+                            # 
+                            # get the href attribute of the link and extract the xref head word from the URL
+                            cross_ref_url = cross_reference_link['href']
+                            cross_ref_head_word = cross_ref_url.split('/')[-1] # be-rewarded-with-something
+                            # print("cross_ref_head_word:", cross_ref_head_word)
+                            # join the title and the head word with a forward slash 
+                            cross_reference_text = f"{cross_ref_head_word_title.get_text(strip=True)}/{cross_ref_head_word}"
+                            # print("cross_reference_text:", cross_reference_text)
+                            sense_dict['cross_reference'] = cross_reference_text
+                    
+                    # add sense_dict to senses_list
+                    # print("sense_dict:", sense_dict)
+                    senses_list.append(sense_dict)
+                    # print("senses_list:", senses_list)
+                    # [{'definition': 'something that you get because you have done something good orhelpfulor have worked hard', 'related_words': 'prize/benefit'}, {'definition': 'money that is offered to people for helping the police tosolveacrimeorcatchacriminal'}]
+                    
+                # add sesnses_list to for_serialization
+                part_of_speech_dict['senses'] = senses_list
+            
+                part_of_speeches_list.append(part_of_speech_dict)
+                                   
+        for_serialization['part_of_speeches'] = part_of_speeches_list
+        serializer = DictEntrySerializer(data=for_serialization)
+        # for_serialization['part_of_speeches'] = part_of_speech.get_text(strip=True)
+        # print(json.dumps(for_serialization, indent=4, ensure_ascii=False))
+         
+        
+        if serializer.is_valid():
+            # print("Serialized LdoceEntry:", serializer.data)
+            # save to database
+                serializer.save()
+        else:
+            print("Serializer errors:", serializer.errors)
+        
+                        
+        return JsonResponse({'status': 'OK'})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
