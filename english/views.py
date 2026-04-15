@@ -1242,3 +1242,11 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
         #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
         #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
+    
+
+from nlp_utils import analyze_user_text
+
+def nlp_view(request):
+    user_input = request.GET.get('text', 'Hello world')
+    results = analyze_user_text(user_input)
+    return JsonResponse(results)

@@ -1,1 +1,1 @@
-web: gunicorn backend.wsgi
+web: gunicorn backend.wsgi --workers 2
