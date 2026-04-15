@@ -1,15 +1,15 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
-    CategoryWithUnitsSerializer1, LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
-from .serializers import UserSerializer
+    LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
+from .serializers import UserSerializer, SenseSerializer
 from django.contrib.auth.models import User
 from rest_framework import generics
 from rest_framework.decorators import api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .utils import read_viet_dict
 from .utils import scrape_longman_url
@@ -933,12 +933,14 @@ def delete_dictionary_entry(request):
             print("delete_dictionary_entry received JSON request body:", request.body)
             data = json.loads(request.body)
             word = data.get('word')
+            source = data.get('source')
         else:
             # Handle form-data or x-www-form-urlencoded
             print("delete_dictionary_entry received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
+            source = request.POST.get('source')
         
-        DictEntry.objects.filter(head_word=word).delete()
+        DictEntry.objects.filter(head_word=word, source=source).delete()
         
         return JsonResponse({'status': f'Dictionary entry for word "{word}" deleted successfully.'})
        
@@ -969,11 +971,12 @@ def populate_viet_dictionary(request):
         
         serializer = DictEntrySerializer(data=for_serialization)
         
-        
         if serializer.is_valid():
             serializer.save()
         else:
-            print("Serializer errors:", serializer.errors)
+            # print("Serializer errors:", serializer.errors)
+            # return error response if serializer is not valid
+            return JsonResponse({'error': 'Failed to serialize dictionary entry.', 'details': serializer.errors}, status=400)
         
         return JsonResponse({'status': 'Vietnamese dictionary populated successfully.'})
        
@@ -1001,14 +1004,15 @@ def read_dictionary(request):
             # print("read_dictionary, query:", query)
             serializer = DictEntrySerializer(query, many=True)
         
-            # print("read_dictionary, serializer.data:", serializer.data)
+            # print pretty printed serializer data
+            print("read_dictionary, serializer data:", json.dumps(serializer.data, indent=4, ensure_ascii=False))
+            if not serializer.data:
+                return JsonResponse({'error': f'No dictionary entry found for word "{word}" with source "{source}".'}, status=404)
         
             return JsonResponse(serializer.data, safe=False)
         else:   # return error asking to specify source if source is not provided
             return JsonResponse({'error': 'Source dictionary is required when searching for a dictionary entry.'}, status=400)
-        
-      
-        #return JsonResponse({'status': 'Dictionary read successfully.', 'results': list(query.values())})
+    
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -1130,7 +1134,7 @@ def  populate_longman_dictionary(request):
                         for i, example in enumerate(examples, start=1):
                             example_dict = {}
                             example_dict['example_number'] = i
-                            example_dict['sentence'] = example.get_text(strip=True)
+                            example_dict['sentence'] = example.get_text()
                             example_dict['translation'] = None
                             example_dict['grammar_point'] = None
                             examples_list.append(example_dict)
@@ -1216,3 +1220,25 @@ def  populate_longman_dictionary(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
+
+class SenseUpdateView(generics.RetrieveUpdateAPIView):
+    serializer_class = SenseSerializer
+    permission_classes = [IsAuthenticated]
+    # permission_classes = [AllowAny]
+    def perform_update(self, serializer):
+        print("request data:", self.request.data)
+        if serializer.is_valid():
+            print("Serializer is valid")
+            serializer.save(
+                definition=self.request.data.get('definition'),
+            )
+        else:
+            print(serializer.errors)
+    
+    def get_queryset(self):
+        sense_id = self.kwargs.get('pk')
+        #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
+        queryset = Sense.objects.filter(id=sense_id)
+        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
+        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
+        return queryset

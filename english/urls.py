@@ -72,6 +72,8 @@ urlpatterns = [
     # populate-longman-dictionary
     path("delete-dictionary-entry/", views.delete_dictionary_entry, name="delete-dictionary-entry"),
     path("populate-longman-dictionary/", views.populate_longman_dictionary, name="populate-longman-dictionary"),
+    # update-sense
+    path("update-dictionary-sense/<int:pk>/", views.SenseUpdateView.as_view(), name="update-dictionary-sense"),
  
 ]
 

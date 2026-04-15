@@ -17,6 +17,7 @@ urlpatterns = [
     #path("text_to_speech_openai/", views.speak, name="text-to-speech"),
     path("text_to_speech_openai/", views.speak_realtime, name="text-to-speech"),
     #path("text_to_speech_azure/", views.generate_azure_audio, name="text-to-speech-azure"),
+    path("speech-to-text/", views.openai_transcription, name="speech-to-text"),
     
     #Amazon S3
     path("upload-audio/", views.upload_audio, name="upload-audio"),

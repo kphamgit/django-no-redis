@@ -379,6 +379,19 @@ def speak_realtime(request):
                 yield chunk
 
     return StreamingHttpResponse(stream_audio(), content_type="audio/mpeg")
+
+@csrf_exempt
+def openai_transcription(request):
+    if request.method == 'POST' and request.FILES.get('audio'):
+        audio_file = request.FILES['audio']
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(audio_file.name, audio_file.read(), audio_file.content_type),
+        )
+        print("Transcription result:", transcription.text)
+        return JsonResponse({'transcription': transcription.text})
+    else:
+        return JsonResponse({'error': 'No audio file provided'}, status=400)
     
 class QuizDetailView(generics.RetrieveAPIView):
     serializer_class = QuizDetailSerializer
