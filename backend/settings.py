@@ -232,7 +232,7 @@ CORS_ALLOW_METHODS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://kp-ws-redis-7c251d3f5802.herokuapp.com/',
+    'https://ws-redis-server-b7141d12dbc0.herokuapp.com/',
     'https://phuyenenglish.com',
     'https://www.phuyenenglish.com',
     'https://tienganhphuyen.com',

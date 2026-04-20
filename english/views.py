@@ -25,6 +25,10 @@ from django.views.decorators.csrf import csrf_exempt
 
 import json
 
+# import spacy
+#load spaCy model (globally) once when the server starts to optimize performance
+# nlp = spacy.load("en_core_web_sm")
+
 # Create your views here.
    
 #  VIEWS
@@ -115,6 +119,79 @@ class QuestionListView(generics.ListAPIView):
         queryset = Question.objects.filter(quiz_id=pk).order_by('question_number')
         return queryset
 
+class QuestionPartialListView(generics.GenericAPIView):
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated]
+
+    
+    def post(self, request, *args, **kwargs):
+        print(" ????????? QuestionPartialListView called.........")
+        pk = self.kwargs.get('pk')
+        starting_question_number = self.kwargs.get('starting_question_number')
+        
+        data = json.loads(request.body)
+        quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
+        print("Received quiz_attempt_id:", quiz_attempt_id)
+        
+        questions = Question.objects.filter(
+            quiz_id=pk,
+            question_number__gte=starting_question_number
+        ).order_by('question_number')[:3]
+        
+        has_more = Question.objects.filter(
+            quiz_id=pk,
+            question_number__gt=starting_question_number + 2
+        ).exists() if questions else False
+        
+        # if no more questions, retrieve quiz attempt
+        if not has_more:
+            try:
+                quiz_attempt = QuizAttempt.objects.get(id=quiz_attempt_id)
+                # retrieve errorneous question attempts for this quiz attempt
+                erroneous_question_attempts = quiz_attempt.errorneous_questions.split(",") if quiz_attempt.errorneous_questions else []
+                print(f"No more questions, but Quiz attempt {quiz_attempt_id} has erroneous questions: {erroneous_question_attempts}")
+                
+                
+            except QuizAttempt.DoesNotExist:
+                print(f"Quiz attempt with ID {quiz_attempt_id} not found.")
+                
+        return Response({
+            "questions": QuestionSerializer(questions, many=True).data,
+            "has_more": has_more,
+        })
+
+
+"""
+this view is for GET request
+class QuestionPartialListView(generics.ListAPIView):
+    # this view returns only a subset of questions, starting from the question number specified in the URL, 
+    # and returns the next 3 questions for 
+    print("********** QuestionPartialListView called....")
+    
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated]
+    #permission_classes = [AllowAny]
+
+    def list(self, request, *args, **kwargs):
+        pk = self.kwargs.get('pk')
+        starting_question_number = self.kwargs.get('starting_question_number')
+        
+        questions = Question.objects.filter(
+            quiz_id=pk,
+            question_number__gte=starting_question_number
+        ).order_by('question_number')[:3]
+        
+        has_more = Question.objects.filter(
+            quiz_id=pk,
+            question_number__gt=starting_question_number + 2
+        ).exists() if questions else False
+        
+        return Response({
+            "questions": QuestionSerializer(questions, many=True).data,
+            "has_more": has_more,
+        })
+
+"""
 
 def create_azure_audio(text):
     container_name = "tts-audio"
@@ -343,6 +420,38 @@ class LevelCreateView(generics.CreateAPIView):
             print(serializer.errors)
 
 # EDIT/UPDATE VIEWS
+
+class QuestionCloneView(generics.CreateAPIView):
+    print("QuestionCloneView called")
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        question_id = self.kwargs.get('pk')
+        queryset = Question.objects.filter(id=question_id)
+        return queryset
+    
+    def create(self, request, *args, **kwargs):
+        original_question = self.get_queryset().first()
+        if original_question:
+            cloned_question = Question.objects.create(
+                quiz_id=original_question.quiz_id,
+                question_number=original_question.question_number + 1,
+                format=original_question.format,
+                content=original_question.content,
+                answer_key=original_question.answer_key,
+                instructions=original_question.instructions,
+                prompt=original_question.prompt,
+                audio_str=original_question.audio_str,
+                button_cloze_options=original_question.button_cloze_options,
+                video_segment_id=original_question.video_segment_id,
+            )
+            print("Question cloned successfully, cloned question ID:", cloned_question.id)
+            return Response(QuestionSerializer(cloned_question).data, status=201)
+        
+        return Response({"error": "Original question not found."}, status=404)
+
+    
 
 class QuestionEditView(generics.RetrieveUpdateAPIView):
     serializer_class = QuestionSerializer
@@ -1243,10 +1352,36 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
         #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
-
+"""
 from nlp_utils import analyze_user_text
 
 def nlp_view(request):
     user_input = request.GET.get('text', 'Hello world')
     results = analyze_user_text(user_input)
     return JsonResponse(results)
+
+
+def get_tokens(text):
+    # The 'doc' object holds all the token information
+    doc = nlp(text)
+    # Extract just the text of each token
+    tokens = [token.text for token in doc]
+    return tokens
+
+def nlp_test(request):
+    try:
+        # Load the model
+        
+        # doc = nlp("Checking if spaCy works on Heroku.")
+        text = "Apple is looking at buying U.K. startup for $1 billion"
+        tokens = get_tokens(text)
+        return JsonResponse({
+            "status": "success",
+            "tokens": tokens,
+            "model": "en_core_web_sm"
+        })
+        # tokenize the text
+        # Return a simple extraction
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)
+"""

@@ -12,6 +12,7 @@ urlpatterns = [
     path("categories/<int:pk>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("units/<int:pk>/quizzes", views.QuizListView.as_view(), name="quiz-list"),
     path("quizzes/<int:pk>/questions", views.QuestionListView.as_view(), name="question-list"),
+    path("quizzes/<int:pk>/questions/<int:starting_question_number>", views.QuestionPartialListView.as_view(), name="question-list"),
     path("quizzes/<int:pk>/video_segments/", views.VideoSegmentListView.as_view(), name="video-segment-list"),
     # for video segments list, pk is quiz_id of the quiz that the video segments belong to
     
@@ -38,6 +39,9 @@ urlpatterns = [
     path("levels/<int:pk>/", views.LevelRetrieveView.as_view(), name="level-retrieve"),
     path("categories/<int:pk>/", views.CategoryRetrieveView.as_view(), name="category-retrieve"),
     path("units/<int:pk>/", views.UnitRetrieveView.as_view(), name="unit-retrieve"),
+    
+    # clone views
+    path("questions/<int:pk>/clone", views.QuestionCloneView.as_view(), name="question-clone"),
     
     # EDIT views
     path("levels/<int:pk>/edit", views.LevelEditView.as_view(), name="level-edit"),
@@ -75,5 +79,6 @@ urlpatterns = [
     # update-sense
     path("update-dictionary-sense/<int:pk>/", views.SenseUpdateView.as_view(), name="update-dictionary-sense"),
  
+    # path("nlp-test/", views.nlp_test, name="nlp-test"),
 ]
 

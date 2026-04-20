@@ -26,11 +26,18 @@ urlpatterns = [
     #Microsoft Azure Text-to-Speech
     path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),
     
-    
+    #mark_completed
     path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
+    path("quiz_attempts/get_or_create_react_native/<int:pk>/", views.get_or_create_quiz_attempt_react_native),   
     path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/create_next_question_attempt_react_native/", views.create_question_attempt_react_native),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/reset/", views.reset_quiz_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/mark_completed/", views.mark_quiz_attempt_completed),  # pk is quiz_attempt_id
+    
+    # api.get(`/api/quiz_attempts/${quizAttempt?.id}/incorrect_questions/`)
+    path("quiz_attempts/<int:pk>/incorrect_questions/", views.get_incorrect_questions),  # pk is quiz_attempt_id
+    
     path("quiz_attempts/<int:pk>/continue/", views.continue_quiz_attempt),  # pk is quiz_attempt_id   
     path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id
     path("video_question_attempts/<int:pk>/process/", views.process_video_question_attempt),  # pk is quiz_attempt_id
