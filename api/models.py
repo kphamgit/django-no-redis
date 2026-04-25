@@ -102,14 +102,19 @@ class QuestionAttempt(models.Model):
     quiz_attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, related_name="question_attempts")
     #question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="question_attempts")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="question_attempts", default=1)
+    question_attempt_number = models.IntegerField(default=0)
     error_flag = models.BooleanField(default=None, null=True)
     completed = models.BooleanField(default=False)
     score = models.IntegerField(default=0)
     completed = models.BooleanField(default=False)
+    corrected = models.BooleanField(default=None, null=True)
+    review_state = models.BooleanField(default=False, null=False)
+    # this flag is for wrong attempts that have been corrected by the user,
+    # so that they won't be counted as wrong when collecting incorrect questions for quiz review
     answer = models.CharField(max_length=1000, blank=True, null=True, default="")
 
     def __str__(self):
-        return f"Attempt for {self.question.question_number}"
+        return f"Quesion Attempt for id {self.id} with question attempt number: {self.question.question_number}"
     
 class DictEntry(models.Model):
     head_word = models.CharField(max_length=100)

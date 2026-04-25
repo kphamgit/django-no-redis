@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.contrib.auth.models import User
 from rest_framework import generics
 from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
-     UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer
+     UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment
@@ -576,6 +576,9 @@ def get_or_create_quiz_attempt_react_native(request, pk):
         """
             Create or retrieve a QuizAttempt for the given quiz and user.
         """
+        # get number_of_questions_to_preload from request.data, default to 3
+        number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
+        
         print("***** get_or_create_quiz_attempt_react_native called with quiz_id:", pk)
         quiz_attempt, created  = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
@@ -586,22 +589,24 @@ def get_or_create_quiz_attempt_react_native(request, pk):
         if created:
             serializer = QuizAttemptSerializer(quiz_attempt)
     
-            first_3_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:3]
-            if first_3_questions:
-                print("First 3 questions for quiz_id", pk, ":", first_3_questions)
+            loaded_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
+            if loaded_questions:
+                # print("First questions for quiz_id", pk, ":", loaded_questions)
                 # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
-                first_question = first_3_questions[0]
-                # create question attempt for the first question
+                first_question = loaded_questions[0]
+                # create question attempt for the first question of loaded questions
                 question_attempt = QuestionAttempt.objects.create(
                     quiz_attempt=quiz_attempt,
+                    question_attempt_number=1,
                     question=first_question,
                     completed=False,
                 )
                 return Response({
                     "quiz_attempt": serializer.data,
                     "created": True,
-                    "questions": QuestionSerializer(first_3_questions, many=True).data,
+                    "questions": QuestionSerializer(loaded_questions, many=True).data,
                     "question_attempt_id": question_attempt.id,
+                    "question_attempt_number": 1,
                 })
             else:
                 # no questions in the quiz
@@ -841,6 +846,7 @@ def mark_quiz_attempt_completed(request, pk):
     """
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
+        print("***** Marking QuizAttempt id:", pk, " as completed.")
         quiz_attempt.completion_status = "completed"
         quiz_attempt.save()
         return Response({
@@ -852,9 +858,137 @@ def mark_quiz_attempt_completed(request, pk):
             "error": "Quiz attempt not found."
         }, status=404)
             
-#get_incorrect_questions
-@api_view(["GET"])
+# 
+@api_view(["POST"])
+def replenish_incorrect_questions(request, pk):
+    """
+        Get all incorrectly answered questions for a quiz attempt.
+    """
+    try:      
+        # read starting_question_attempt_number from body
+        starting_question_attempt_number = request.data.get('starting_question_attempt_number', 1)
+        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
+        number_of_questions_to_replenish = request.data.get('number_of_questions_to_replenish', 1)
+        # search for errorneous question attempts that have been corrected (using the corrected flag)
+        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
+        errorneous_question_attempts = QuestionAttempt.objects.filter(
+            quiz_attempt_id=pk, 
+            error_flag=True, 
+            corrected=False,
+            question_attempt_number__gte=starting_question_attempt_number
+        )
+    
+        # for simplicity, retrieve only the first question attempt that is errorneous and not corrected, 
+        # and return the question data for that question attempt, along with a flag indicating whether there are more incorrect questions to be replenished after this one (i.e. whether the count of errorneous_question_attempts is greater than 1)
+        erroreous_attempts = errorneous_question_attempts.order_by('id')[:number_of_questions_to_replenish]
+        
+        combined = [
+        {
+            "question": QuestionSerializer(attempt.question).data,
+            "question_attempt_number": attempt.question_attempt_number,
+            "question_attempt_id": attempt.id,
+        }
+        for attempt in erroreous_attempts
+        ]
+        
+        return Response({
+            "incorrect_questions": combined,
+            "quiz_attempt_id": pk,
+        })        
+    except QuizAttempt.DoesNotExist:
+        return Response({
+            "error": "Quiz attempt not found."
+        }, status=404)
+        
+
+@api_view(["POST"])
 def get_incorrect_questions(request, pk):
+    """
+        Get all incorrectly answered questions for a quiz attempt.
+    """
+    try:      
+        # read starting_question_attempt_number from body
+        starting_question_attempt_number = request.data.get('starting_question_attempt_number', 1)
+        print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
+        # search for errorneous question attempts that have been corrected (using the corrected flag)
+        print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
+        errorneous_question_attempts = QuestionAttempt.objects.filter(
+            quiz_attempt_id=pk, 
+            error_flag=True, 
+            corrected=False,
+            question_attempt_number__gte=starting_question_attempt_number
+        )
+    
+        first_3_erroreous_attempts = errorneous_question_attempts.order_by('id')[:3]
+        
+        
+        serializer = QuestionAttemptSerializer(first_3_erroreous_attempts, many=True)
+        has_more_incorrect = errorneous_question_attempts.count() > 3
+        
+        combined = [
+        {
+            "question": QuestionSerializer(attempt.question).data,
+            "question_attempt_number": attempt.question_attempt_number,
+            "question_attempt_id": attempt.id,
+        }
+        for attempt in first_3_erroreous_attempts
+        ]
+        
+        return Response({
+            "incorrect_questions": combined,
+            "has_more_incorrect": has_more_incorrect,
+            "quiz_attempt_id": pk,
+        })        
+    except QuizAttempt.DoesNotExist:
+        return Response({
+            "error": "Quiz attempt not found."
+        }, status=404)
+        
+@api_view(["POST"])
+def get_incorrect_questions_save(request, pk):
+    """
+        Get all incorrectly answered questions for a quiz attempt.
+    """
+    try:      
+        # read starting_question_attempt_number from body
+        starting_question_attempt_number = request.data.get('starting_question_attempt_number', 1)
+        print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
+        errorneous_question_attempts = QuestionAttempt.objects.filter(
+            quiz_attempt_id=pk, 
+            error_flag=True, 
+            question_attempt_number__gte=starting_question_attempt_number
+        )
+    
+        first_3_erroreous_attempts = errorneous_question_attempts.order_by('id')[:3]
+        
+        # get the first question of the three
+        # first_question = first_3_erroreous_attempts.first().question if first_3_erroreous_attempts.exists() else None
+  
+        serializer = QuestionAttemptSerializer(first_3_erroreous_attempts, many=True)
+        has_more_incorrect = errorneous_question_attempts.count() > 3
+        
+        combined = [
+        {
+            "question": QuestionSerializer(attempt.question).data,
+            "question_attempt_number": attempt.question_attempt_number,
+            "question_attempt_id": attempt.id,
+        }
+        for attempt in first_3_erroreous_attempts
+        ]
+        
+        return Response({
+            "incorrect_questions": combined,
+            "has_more_incorrect": has_more_incorrect,
+            "quiz_attempt_id": pk,
+        })        
+    except QuizAttempt.DoesNotExist:
+        return Response({
+            "error": "Quiz attempt not found."
+        }, status=404)
+        
+        
+@api_view(["GET"])
+def get_incorrect_questions_save(request, pk):
     """
         Get all incorrectly answered questions for a quiz attempt.
     """
@@ -925,7 +1059,19 @@ def create_question_attempt_react_native(request, pk):
     # get body data
     try:
         print("******** create_question_attempt_react_native called for quiz_attempt id:", pk, " request.data:", request.data)
+        # retrieve flag review_state from the request body
+        review_state_from_request = request.data.get('review_state', 'normal')  # default to 'normal' if not provided
+        print("Review state for this question attempt creation:", review_state_from_request)
+        # if review_state_from_request is "review", then this question attempt is created for review purpose, 
+        # and we will mark the question attempt's review_state to True, 
+        # and also mark the quiz attempt's review_state to True, so that the frontend can display the quiz attempt and question attempt in review mode accordingly.
+        # quiz_attempt_review_state = quiz_attempt.review_state  # boolean
         quiz_attempt = QuizAttempt.objects.get(id=pk)
+        if review_state_from_request == "review":
+            quiz_attempt.review_state = True
+            quiz_attempt.save()
+            print("QuizAttempt id:", pk, "marked as review state due to question attempt creation with review state.")
+            
         question_id = request.data.get('question_id', None)
         #print("create_question_attempt for quiz_attempt id:", pk, " question_id:", question_id)
         if question_id is None:
@@ -938,16 +1084,29 @@ def create_question_attempt_react_native(request, pk):
             return Response({
                 "error": "Question not found for the given question_id."
             }, status=404)
+   
+        last_question_attempt = quiz_attempt.question_attempts.order_by('question_attempt_number').last()
+        last_question_attempt_number = last_question_attempt.question_attempt_number if last_question_attempt else 0
+        print("$$$$$$$ Last question attempt number:", last_question_attempt_number)
         question_attempt = QuestionAttempt.objects.create(
             quiz_attempt=quiz_attempt,
             question=question,
+            question_attempt_number=last_question_attempt_number + 1,
             completed=False,
+            review_state = quiz_attempt.review_state,  # set the question attempt's review_state the same as the quiz attempt's review_state, so that the frontend can display the question attempt in review mode if the quiz attempt is in review mode.
+            
         )
+        
         print("Created QuestionAttempt is :", question_attempt.id, "for Question id:", question.id)
+        print("Created QuestionAttempt number :", question_attempt.question_attempt_number, "for Question id:", question.id)
+        
+        # retrieve review_state from quiz_attempt
+ 
         # question_serializer = QuestionSerializer(question)
         return Response({
             "quiz_attempt_id": pk,
-            "question_attempt_id": question_attempt.id
+            "question_attempt_id": question_attempt.id,
+            "question_attempt_number": question_attempt.question_attempt_number,
         })
         
     except QuizAttempt.DoesNotExist:
@@ -1237,6 +1396,205 @@ def process_timeout(request, pk):
 
 
 @api_view(["POST"])
+def process_question_attempt_react_native(request, pk):
+    try: 
+        print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        #print(" ******* process_question_attempt, assessment_results:", assessment_results)
+        #print(" process_question_attempt, assessment_results:", assessment_results)
+        error_flag = assessment_results.get('error_flag', True)
+        
+        score = 0 if error_flag else 5
+        
+        corrected = False if error_flag else None  # if it's an error, then we set corrected to False. 
+        
+        # corrected = None if not error_flag else False  # if it's not an error, then we set corrected to None, meaning it doesn't matter, if it's an error, then we set corrected to False, meaning it's an errorneous attempt that has not been corrected yet.
+     
+        question_attempt = QuestionAttempt.objects.get(id=pk)
+        
+        question_attempt.error_flag = error_flag
+        question_attempt.corrected = corrected
+        #print(" process_question_attempt, computed error_flag:", question_attempt.error_flag)
+        question_attempt.score = score
+        question_attempt.answer = request.data.get('user_answer', '')
+        question_attempt.completed = True
+        question_attempt.save()
+        
+        # if no error, and in review state, search for the question attempt that has error_flag = True and 
+        # corrected = False for the same question, mark it as corrected = True, so that it won't be counted as errorneous attempt
+        # when we determine if quiz attempt has errors or not, 
+        
+        
+        if (not error_flag) and question_attempt.quiz_attempt.review_state:
+            #print(" This question attempt is correct, and quiz attempt is in review state, checking if there is an errorneous attempt for the same question to mark as corrected...")
+            errorneous_attempts_for_same_question = QuestionAttempt.objects.filter(
+                quiz_attempt=question_attempt.quiz_attempt,
+                question=question_attempt.question,
+                error_flag=True,
+                corrected=False
+            )
+            if errorneous_attempts_for_same_question.exists():
+                #print(" Found errorneous attempt(s) for the same question. Marking them as corrected.")
+                errorneous_attempts_for_same_question.update(corrected=True)
+            else:
+                #print(" No errorneous attempts found for the same question.")
+                pass
+        
+        
+        quiz_attempt = question_attempt.quiz_attempt
+        # calculate score for quiz_attempt
+        quiz_attempt.score = quiz_attempt.score + score
+                
+        quiz_attempt.save()
+        
+        # review_state = quiz_attempt.review_state
+        
+        quiz_attempt_has_errors = False
+        
+        # use the corrected_flag to determine if a question attempt is an errorneous attempt 
+        # that needs to be reviewed, or a redone attempt that has already been reviewed and corrected.
+        question_ids_with_errors = set(
+            attempt.question.id 
+            for attempt in quiz_attempt.question_attempts.order_by('question_attempt_number').all()
+                if attempt.error_flag and attempt.corrected == False
+        )
+        print(" question_ids_with_errors:", question_ids_with_errors)
+        quiz_attempt_has_errors = len(question_ids_with_errors) > 0
+        
+        """
+        # go throught all question attempts of this quiz attempt. Collect errorneous question attempts in a list.
+        aggregate_errorneous_attempts = []
+
+        # first, find all question_ids that were ever answered wrong
+        question_ids_with_errors = set(
+            attempt.question.id 
+            for attempt in quiz_attempt.question_attempts.order_by('question_attempt_number').all()
+            if attempt.error_flag
+        )
+        # then collect all attempts for those questions (both wrong and correct redos)
+        for attempt in quiz_attempt.question_attempts.order_by('question_attempt_number').all():
+            if attempt.question.id in question_ids_with_errors:
+                aggregate_errorneous_attempts.append(attempt)
+
+        print(" aggregate_errorneous_attempts:", aggregate_errorneous_attempts)
+        
+        # now, collect only the last question attempt for each question
+        # that was ever answered wrong,
+        last_attempts_for_errorneous_questions = {}
+        for attempt in aggregate_errorneous_attempts:
+            last_attempts_for_errorneous_questions[attempt.question.id] = attempt
+            
+        print(" last_attempts_for_errorneous_questions:", last_attempts_for_errorneous_questions)
+        
+        # go through the last_attempts_for_errorneous_questions, if any of them has error_flag = True, then quiz_attempt_has_errors = True
+        for question_id, attempt in last_attempts_for_errorneous_questions.items():
+            if attempt.error_flag:
+                quiz_attempt_has_errors = True
+                break
+            
+        print(" quiz_attempt_has_errors:", quiz_attempt_has_errors)
+        """
+        
+        return Response({
+                "assessment_results": assessment_results,
+                "quiz_attempt_has_errors": quiz_attempt_has_errors,
+                "quiz_attempt_score": { "score": quiz_attempt.score  }
+        })
+        
+    except QuestionAttempt.DoesNotExist:
+        return Response({
+            "error": "Question attempt not found."
+        }, status=404)
+
+@api_view(["POST"])
+def process_question_attempt_review_state(request, pk):
+    try: 
+        #print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
+        assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
+        #print(" ******* process_question_attempt, assessment_results:", assessment_results)
+        #print(" process_question_attempt, assessment_results:", assessment_results)
+        error_flag = assessment_results.get('error_flag', True)
+        
+        score = 0 if error_flag else 5
+        # question attempt for this question should have been created.
+        # look for create_next_question_attempt in the frondend code (TakeQuiz.tsx)
+        question_attempt = QuestionAttempt.objects.get(id=pk)
+        
+        question_attempt.error_flag = error_flag
+        #print(" process_question_attempt, computed error_flag:", question_attempt.error_flag)
+        question_attempt.score = score
+        question_attempt.answer = request.data.get('user_answer', '')
+        question_attempt.completed = True
+        question_attempt.save()
+        
+        quiz_attempt = question_attempt.quiz_attempt
+        # calculate score for quiz_attempt
+        quiz_attempt.score = quiz_attempt.score + score
+        
+        print(" **** review state of quiz attempt is:***** ", quiz_attempt.review_state)
+        erroneous_attemps_available = quiz_attempt.question_attempts.filter(error_flag=True).exists()
+        print(" Are there any erroneous attempts for this quiz_attempt?", erroneous_attemps_available)
+        
+        quiz_attempt.save()
+        
+        is_last_question = False
+        next_question_number = question_attempt.question.question_number + 1
+        print(" Next question number:", next_question_number)
+        last_question_in_quiz = question_attempt.quiz_attempt.quiz.questions.order_by('-question_number').first()
+        if (next_question_number > last_question_in_quiz.question_number):
+            print(" This is the last question in the quiz.")
+            is_last_question = True
+        else:
+            print(" This is NOT the last question in the quiz.")
+        
+        if (is_last_question ):
+            if (not erroneous_attemps_available):
+                # mark quiz attempt as completed
+                print(" Last question, and errorneous strng is empty, marking quiz attempt as completed...")
+                quiz_attempt.completion_status = "completed"
+                quiz_attempt.save()
+                # not returning a next question means the quiz attempt is completed
+                return Response({
+                    "assessment_results": assessment_results,
+                    "quiz_attempt": { "completed": True, "score" : quiz_attempt.score  }
+                })
+            else: # get a question id from errorneous list in quiz_attempt
+                print(" Last question of quiz, but there are errorneous questions to review, on front end, ask user if they want to review or not...")
+                return Response({
+                    "assessment_results": assessment_results,
+                    "next_question_id": None,  # frontend can use the presence of next_question_id to determine if there are more questions to review or not
+                    "quiz_attempt": { "completed": False, "score": quiz_attempt.score  }
+                })
+     
+    
+        else:
+            print(" Not the last question. Proceeding")
+            # increment question number to get next question in the quiz
+            next_question_number = question_attempt.question.question_number + 1
+            #print(" Next question number FOUND (if not, then it's an error):", next_question_number)
+            # get the question in database based on next_question_number and quiz_id
+            next_question = Question.objects.filter(quiz_id=question_attempt.quiz_attempt.quiz_id, question_number=next_question_number).first()
+            if next_question:
+                # return next question data
+                #print(" Found next question id:", next_question.id)
+                return Response({
+                        "assessment_results": assessment_results,
+                        "next_question_id" : next_question.id,
+                        "quiz_attempt": { "completed": False, "score": quiz_attempt.score  }
+                })
+            else:
+                #print("Finished question attempt. But there's an error retrieving next question.................")
+                return Response({
+                    "assessment_results": assessment_results,
+    
+                })    
+            
+    except QuestionAttempt.DoesNotExist:
+        return Response({
+            "error": "Question attempt not found."
+        }, status=404)
+
+@api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
         #print(" ******** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
@@ -1383,6 +1741,8 @@ def process_question_attempt(request, pk):
         return Response({
             "error": "Question attempt not found."
         }, status=404)
+
+
 
 @api_view(["POST"])
 def update_question_attempt(request, pk):
