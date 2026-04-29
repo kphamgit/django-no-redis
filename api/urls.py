@@ -30,8 +30,8 @@ urlpatterns = [
     path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create_react_native/<int:pk>/", views.get_or_create_quiz_attempt_react_native),   
-    path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
-    path("quiz_attempts/<int:pk>/create_next_question_attempt_react_native/", views.create_question_attempt_react_native),  # pk is quiz_attempt_id
+    # path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/create_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/reset/", views.reset_quiz_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/mark_completed/", views.mark_quiz_attempt_completed),  # pk is quiz_attempt_id
     
@@ -42,9 +42,7 @@ urlpatterns = [
     path("quiz_attempts/<int:pk>/continue/", views.continue_quiz_attempt),  # pk is quiz_attempt_id   
     path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id
     path("video_question_attempts/<int:pk>/process/", views.process_video_question_attempt),  # pk is quiz_attempt_id
-    path("question_attempts/<int:pk>/process_react_native/", views.process_question_attempt_react_native),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process/", views.process_question_attempt),  # pk is quiz_attempt_id
-    path("question_attempts/<int:pk>/process_review_state/", views.process_question_attempt_review_state),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process_timeout/", views.process_timeout),  # pk is quiz_attempt_id
     path("process_live_question_attempt/", views.process_live_question_attempt),  # pk is quiz_attempt_id
     path("start_live_quiz/<int:pk>/", views.start_live_quiz),  # pk is live quiz_id

@@ -58,7 +58,6 @@ class CategoryWithUnitsSerializer(serializers.ModelSerializer):
         }
         
 class CategoryWithUnitsSerializer1(serializers.ModelSerializer):
-    print("CategoryWithUnitsSerializer1 is being defined")
     units = UnitSerializer(many=True, read_only=True)
     class Meta:
         model = Category

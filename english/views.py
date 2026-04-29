@@ -153,7 +153,7 @@ class QuestionPartialListView(generics.GenericAPIView):
                 
                 
             except QuizAttempt.DoesNotExist:
-                print(f"Quiz attempt with ID {quiz_attempt_id} not found.")
+                print(f"QuestionPartialListView Quiz attempt with ID {quiz_attempt_id} not found.")
                 
         return Response({
             "questions": QuestionSerializer(questions, many=True).data,
@@ -283,7 +283,6 @@ class QuestionCreateView(generics.ListCreateAPIView):
 
     #fields = ["id", "unit_id", "name", "quiz_number", "questions"]
 class QuizCreateView(generics.ListCreateAPIView):
-    print("QuizCreateView called")
     serializer_class = QuizSerializer
     permission_classes = [IsAuthenticated]
 
@@ -387,7 +386,7 @@ def quiz_attempt_bulk_delete(request):
             quiz_attempt.delete()
             deleted_count += 1
         except QuizAttempt.DoesNotExist:
-            print(f"Quiz attempt with ID {quiz_attempt_id} not found.")
+            print(f"Quiz_attempt_bulk_delete. Quiz attempt with ID {quiz_attempt_id} not found.")
     return Response({"message": f"{deleted_count} quiz attempts deleted successfully."})    
 
 
@@ -422,7 +421,7 @@ class LevelCreateView(generics.CreateAPIView):
 # EDIT/UPDATE VIEWS
 
 class QuestionCloneView(generics.CreateAPIView):
-    print("QuestionCloneView called")
+    # print("QuestionCloneView called")
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -523,12 +522,12 @@ class LevelRetrieveView(generics.RetrieveAPIView):
     def get_queryset(self):
         level_id = self.kwargs.get('pk')
         queryset = Level.objects.filter(id=level_id).prefetch_related('categories')
-        print("LevelRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        print("LevelRetrieveView ******* get_queryset, queryset:", queryset)
+        # print("LevelRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
+        # print("LevelRetrieveView ******* get_queryset, queryset:", queryset)
         return queryset
    
 class CategoryRetrieveView(generics.RetrieveAPIView):
-    print("CategoryRetrieveView called....")
+    #print("CategoryRetrieveView called....")
     # serializer_class = LevelSerializer
     serializer_class = CategoryWithUnitsSerializer   # only return id field
     """
@@ -539,23 +538,23 @@ class CategoryRetrieveView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         category_id = self.kwargs.get('pk')
-        print("CategoryRetrieveView ******* get_queryset called, category_id:", category_id)
+        #print("CategoryRetrieveView ******* get_queryset called, category_id:", category_id)
         queryset = Category.objects.filter(id=category_id).prefetch_related('units')
-        print("CategoryRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        print("CategoryRetrieveView ******* get_queryset, queryset:", queryset)
+        #print("CategoryRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
+        #print("CategoryRetrieveView ******* get_queryset, queryset:", queryset)
         return queryset
    
 class UnitRetrieveView(generics.RetrieveAPIView):
-    print("UnitRetrieveView called....")
+    # print("UnitRetrieveView called....")
     # serializer_class = LevelSerializer
     serializer_class = UnitWithQuizzesSerializer   # only return id field
 
     def get_queryset(self):
         unit_id = self.kwargs.get('pk')
-        print("UnitRetrieveView ******* get_queryset called, category_id:", unit_id)
+        # print("UnitRetrieveView ******* get_queryset called, category_id:", unit_id)
         queryset = Unit.objects.filter(id=unit_id).prefetch_related('quizzes')
         print("UnitRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        print("UnitRetrieveView ******* get_queryset, queryset:", queryset)
+        # print("UnitRetrieveView ******* get_queryset, queryset:", queryset)
         return queryset
    
    
