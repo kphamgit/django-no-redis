@@ -5,13 +5,14 @@ from django.http import JsonResponse
 urlpatterns = [
 
     # LIST views
-    
+   
     path("users/list", views.UserListView.as_view(), name="user-list"),
     path("levels/list", views.LevelListView.as_view(), name="level-list"),
     path("levels/<int:pk>/categories/", views.CategoryListView.as_view(), name="category-list"),
     path("categories/<int:pk>/units/", views.UnitListView.as_view(), name="unit-list"),
     path("units/<int:pk>/quizzes", views.QuizListView.as_view(), name="quiz-list"),
     path("quizzes/<int:pk>/questions", views.QuestionListView.as_view(), name="question-list"),
+    # retrieve questions in a quiz starting from a specific question number
     path("quizzes/<int:pk>/questions/<int:starting_question_number>", views.QuestionPartialListView.as_view(), name="question-list"),
     path("quizzes/<int:pk>/video_segments/", views.VideoSegmentListView.as_view(), name="video-segment-list"),
     # for video segments list, pk is quiz_id of the quiz that the video segments belong to

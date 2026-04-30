@@ -825,7 +825,7 @@ def mark_quiz_attempt_completed(request, pk):
     """
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
-        print("***** Marking QuizAttempt id:", pk, " as completed.")
+        # print("***** Marking QuizAttempt id:", pk, " as completed.")
         quiz_attempt.completion_status = "completed"
         quiz_attempt.save()
         return Response({
@@ -861,7 +861,7 @@ def replenish_incorrect_questions(request, pk):
         # for simplicity, retrieve only the first question attempt that is errorneous and not corrected, 
         # and return the question data for that question attempt, along with a flag indicating whether there are more incorrect questions to be replenished after this one (i.e. whether the count of errorneous_question_attempts is greater than 1)
         erroreous_attempts = errorneous_question_attempts.order_by('id')[:number_of_questions_to_load]
-        print("Errorneous question attempts to be replenished for quiz_attempt id:", pk, ":", erroreous_attempts)
+        #print("Errorneous question attempts to be replenished for quiz_attempt id:", pk, ":", erroreous_attempts)
         combined = [
         {
             "question": QuestionSerializer(attempt.question).data,
@@ -933,10 +933,6 @@ def create_question_attempt(request, pk):
   
         # retrieve flag review_state from the request body
         review_state_from_request = request.data.get('review_state', 'normal')  # default to 'normal' if not provided
-        # if review_state_from_request is "review", then this question attempt is created for review purpose, 
-        # and we will mark the question attempt's review_state to True, 
-        # and also mark the quiz attempt's review_state to True, so that the frontend can display the quiz attempt and question attempt in review mode accordingly.
-        # quiz_attempt_review_state = quiz_attempt.review_state  # boolean
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         if review_state_from_request == True or review_state_from_request == "review":
             quiz_attempt.review_state = True

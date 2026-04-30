@@ -125,13 +125,13 @@ class QuestionPartialListView(generics.GenericAPIView):
 
     
     def post(self, request, *args, **kwargs):
-        print(" ????????? QuestionPartialListView called.........")
+        # print(" ????????? QuestionPartialListView called.........")
         pk = self.kwargs.get('pk')
         starting_question_number = self.kwargs.get('starting_question_number')
         
         data = json.loads(request.body)
         quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
-        print("Received quiz_attempt_id:", quiz_attempt_id)
+        # print("Received quiz_attempt_id:", quiz_attempt_id)
         
         questions = Question.objects.filter(
             quiz_id=pk,
@@ -149,7 +149,7 @@ class QuestionPartialListView(generics.GenericAPIView):
                 quiz_attempt = QuizAttempt.objects.get(id=quiz_attempt_id)
                 # retrieve errorneous question attempts for this quiz attempt
                 erroneous_question_attempts = quiz_attempt.errorneous_questions.split(",") if quiz_attempt.errorneous_questions else []
-                print(f"No more questions, but Quiz attempt {quiz_attempt_id} has erroneous questions: {erroneous_question_attempts}")
+                # print(f"No more questions, but Quiz attempt {quiz_attempt_id} has erroneous questions: {erroneous_question_attempts}")
                 
                 
             except QuizAttempt.DoesNotExist:
@@ -160,42 +160,17 @@ class QuestionPartialListView(generics.GenericAPIView):
             "has_more": has_more,
         })
 
-
-"""
-this view is for GET request
-class QuestionPartialListView(generics.ListAPIView):
-    # this view returns only a subset of questions, starting from the question number specified in the URL, 
-    # and returns the next 3 questions for 
-    print("********** QuestionPartialListView called....")
-    
-    serializer_class = QuestionSerializer
-    permission_classes = [IsAuthenticated]
-    #permission_classes = [AllowAny]
-
-    def list(self, request, *args, **kwargs):
-        pk = self.kwargs.get('pk')
-        starting_question_number = self.kwargs.get('starting_question_number')
-        
-        questions = Question.objects.filter(
-            quiz_id=pk,
-            question_number__gte=starting_question_number
-        ).order_by('question_number')[:3]
-        
-        has_more = Question.objects.filter(
-            quiz_id=pk,
-            question_number__gt=starting_question_number + 2
-        ).exists() if questions else False
-        
-        return Response({
-            "questions": QuestionSerializer(questions, many=True).data,
-            "has_more": has_more,
-        })
-
-"""
-
-def create_azure_audio(text):
+def create_azure_audio(text, language='en'):
+    VOICE_MAP = {
+        'en': 'en-US-JennyNeural',
+        'fr': 'fr-FR-DeniseNeural',
+    }
+    voice_name = VOICE_MAP.get(language, 'en-US-JennyNeural')  # Ensure 'language' is passed or defaults to 'en'
     container_name = "tts-audio"
-    full_blob_name = f"{text}.mp3"  # You can customize the blob name as needed
+    if language == 'en':
+        full_blob_name = f"{text}.mp3"
+    else:  # french
+        full_blob_name = f"fr_{text}.mp3"
    
     # 1. Initialize Blob Client
     blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
@@ -204,7 +179,7 @@ def create_azure_audio(text):
     # 2. Check if it already exists
     if blob_client.exists():
         # Return the existing URL immediately
-        print(f"Audio already exists for text: {text}, skipping synthesis.")
+        # print(f"Audio already exists for text: {text}, skipping synthesis.")
         return 
 
     # 3. If it doesn't exist, proceed with synthesis
@@ -212,6 +187,7 @@ def create_azure_audio(text):
         subscription=settings.AZURE_SPEECH_KEY, 
         region=settings.AZURE_SERVICE_REGION
     )
+    speech_config.speech_synthesis_voice_name = voice_name
     speech_config.set_speech_synthesis_output_format(
         speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
     )
@@ -233,8 +209,6 @@ def create_azure_audio(text):
     else:
         print("Audio synthesis failed for text:", text, " Reason:", result.reason)
       
-
-
 class QuestionCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
@@ -244,11 +218,12 @@ class QuestionCreateView(generics.ListCreateAPIView):
         if serializer.is_valid():
             #serializer.save()
             #kpham: NO NEED for explicit fields since all are included in serializer
-            #print("QuestionCreateView perform_create, request data:", self.request.data)
+            print(" content_language in request data:", self.request.data.get('content_language', 'en'))   
             serializer.save( 
                 question_number=self.request.data.get('question_number'),
                 format=self.request.data.get('format'),
                 content=self.request.data.get('content'),
+                content_language=self.request.data.get('content_language', 'en'),
                 quiz_id=self.request.data.get('quiz_id'),
                 answer_key=self.request.data.get('answer_key'),
                 instructions=self.request.data.get('instructions'),
@@ -258,26 +233,24 @@ class QuestionCreateView(generics.ListCreateAPIView):
                 video_segment_id=self.request.data.get('video_segment_id', None),
             )
             if self.request.data.get('format') == '6' or self.request.data.get('format') == '3':
-                #print ("QuestionCreateView format = 6 ")
-               
-                scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
-                #print("Scrambled words:", scrambled_words)
-                for word in scrambled_words:
-                    #print(f"Creating Azure audio for word: {word}")
-                    create_azure_audio(word)
+                #print ("QuestionCreateView format = 6 ") # word scramble or button_select
+                if self.request.data.get('content_language') in ['en', 'fr']:
+                    scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
+                    #print("Scrambled words:", scrambled_words)
+                    for word in scrambled_words:
+                        # print(f"**************** Creating Azure audio for word: {word}")
+                        create_azure_audio(word, language=self.request.data.get('content_language', 'en'))
                     
-            if self.request.data.get('format') == '2':
-                #print ("QuestionCreateView format = 2 ")
-                cloze_options = self.request.data.get('button_cloze_options', None)
-                if cloze_options:
-                    cloze_options_list = cloze_options.split("/")
-                    #print("Cloze options:", cloze_options_list)
-                    for option in cloze_options_list:
-                        #print(f"Creating Azure audio for cloze option: {option}")
-                        create_azure_audio(option)
+            if self.request.data.get('format') == '2':   # button_select or button_select_cloze
+                if (self.request.data.get('content_language') in ['en', 'fr']):
+                    cloze_options = self.request.data.get('button_cloze_options', None)
+                    if cloze_options:
+                        cloze_options_list = cloze_options.split("/")
+                        #print("Cloze options:", cloze_options_list)
+                        for option in cloze_options_list:
+                            # print(f"Creating Azure audio for cloze option: {option}")
+                            create_azure_audio(option, language=self.request.data.get('content_language', 'en'))
                         
-             
-            
         else:
             print(serializer.errors)
 
@@ -468,6 +441,26 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
             # however, video_segment_id is nullable, so we handle it separately
             # because it is included in validated_data only if not null
             serializer.save(video_segment_id=self.request.data.get('video_segment_id', None),)
+            
+            if self.request.data.get('format') == '6' or self.request.data.get('format') == '3':
+                #print ("QuestionCreateView format = 6 ") # word scramble or button_select
+                if self.request.data.get('content_language') in ['en', 'fr']:
+                    scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
+                    #print("Scrambled words:", scrambled_words)
+                    for word in scrambled_words:
+                        # print(f"**************** QuestionEditView Creating Azure audio for word: {word}")
+                        create_azure_audio(word, language=self.request.data.get('content_language', 'en'))
+                    
+            if self.request.data.get('format') == '2':   # button_select or button_select_cloze
+                if (self.request.data.get('content_language') in ['en', 'fr']):
+                    cloze_options = self.request.data.get('button_cloze_options', None)
+                    if cloze_options:
+                        cloze_options_list = cloze_options.split("/")
+                        #print("Cloze options:", cloze_options_list)
+                        for option in cloze_options_list:
+                            # print(f"QuestionEditView Creating Azure audio for cloze option: {option}")
+                            create_azure_audio(option, language=self.request.data.get('content_language', 'en'))
+            
 
         else:
             print("Serializer errors:", serializer.errors)
@@ -551,10 +544,8 @@ class UnitRetrieveView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         unit_id = self.kwargs.get('pk')
-        # print("UnitRetrieveView ******* get_queryset called, category_id:", unit_id)
         queryset = Unit.objects.filter(id=unit_id).prefetch_related('quizzes')
-        print("UnitRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        # print("UnitRetrieveView ******* get_queryset, queryset:", queryset)
+        # print("UnitRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
    
    
@@ -761,13 +752,13 @@ class VideoSegmentRenumberView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        print("request data:", self.request.data)
+        # print("request data:", self.request.data)
         #request data: {'data_type': 'question', 'id_number_pairs': '[10,4,5,6]'}
         id_numbers = self.request.data.get('id_number_pairs')
         # Convert the string representation of the list to an actual list
         import ast
         id_numbers = ast.literal_eval(id_numbers)
-        print("after .... conversion: id_number_pairs:", id_numbers)
+        # print("after .... conversion: id_number_pairs:", id_numbers)
       
         for index, video_segment_id in enumerate(id_numbers, start=1):  # Start numbering from 1
             #question_id = question_id
@@ -785,13 +776,13 @@ class QuestionRenumberView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        print("request data:", self.request.data)
+        # print("request data:", self.request.data)
         #request data: {'data_type': 'question', 'id_number_pairs': '[10,4,5,6]'}
         id_numbers = self.request.data.get('id_number_pairs')
         # Convert the string representation of the list to an actual list
         import ast
         id_numbers = ast.literal_eval(id_numbers)
-        print("after .... conversion: id_number_pairs:", id_numbers)
+        # print("after .... conversion: id_number_pairs:", id_numbers)
       
         for index, question_id in enumerate(id_numbers, start=1):  # Start numbering from 1
             #question_id = question_id
@@ -799,7 +790,7 @@ class QuestionRenumberView(APIView):
                 question = Question.objects.get(id=question_id)
                 question.question_number = index  # Use the index as the new number
                 question.save()
-                print(f"Updated Question ID {question_id} to new number {index}")
+                # print(f"Updated Question ID {question_id} to new number {index}")
             except Question.DoesNotExist:
                 print(f"Question with ID {question_id} does not exist.")
                 
@@ -823,7 +814,7 @@ class ItemDeleteView(generics.DestroyAPIView):
         if data_type == 'question':
             queryset = Question.objects.filter(id=id) 
         elif data_type == 'quiz':
-            print("ItemDeleteView Quiz Delete .... id:", id)
+            # print("ItemDeleteView Quiz Delete .... id:", id)
             queryset = Quiz.objects.filter(id=id)
         elif data_type == 'unit':
             queryset = Unit.objects.filter(id=id)

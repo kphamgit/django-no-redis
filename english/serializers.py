@@ -7,26 +7,9 @@ class QuestionSerializer(serializers.ModelSerializer):
     #video_segment = serializers.PrimaryKeyRelatedField(queryset=VideoSegment.objects.all(), required=False, allow_null=False)
     class Meta:
         model = Question
-        fields = ["id", "quiz_id", "video_segment_id", "question_number", "content", "format", "answer_key", "instructions", 
+        fields = ["id", "quiz_id", "video_segment_id", "question_number", "content", "content_language", "format", "answer_key", "instructions", 
         "prompt", "audio_str", "score", "button_cloze_options", "timeout", "hint", "explanation"]
         #fields = '__all__'
-        
-
-
-        
-"""
-class QuizSerializer(serializers.ModelSerializer):
-    video_segments = VideoSegmentSerializer(many=True, read_only=True)  # Use the nested serializer
-
-    class Meta:
-        model = Quiz
-        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions", "video_segments"]
-
-        extra_kwargs = {
-           "questions": {"required": False},  # Make the "questions" field optional
-           "video_segments": {"required": False}  # Make the "video_segments" field optional
-        }
-"""
 
 class UnitSerializer(serializers.ModelSerializer):
     #quizzes = QuizSerializer(many=True, read_only=True)
