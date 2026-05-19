@@ -125,7 +125,7 @@ class QuestionPartialListView(generics.GenericAPIView):
 
     
     def post(self, request, *args, **kwargs):
-        # print(" ????????? QuestionPartialListView called.........")
+        print(" ******* QuestionPartialListView called.........")
         pk = self.kwargs.get('pk')
         starting_question_number = self.kwargs.get('starting_question_number')
         
@@ -159,6 +159,37 @@ class QuestionPartialListView(generics.GenericAPIView):
             "questions": QuestionSerializer(questions, many=True).data,
             "has_more": has_more,
         })
+        
+class QuestionRangeListView(generics.GenericAPIView):
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated]
+
+    
+    def post(self, request, *args, **kwargs):
+        print(" ******* QuestionPartialListView called.........")
+        pk = self.kwargs.get('pk')
+        starting_question_number = self.kwargs.get('starting_question_number')
+        print("QuestionRangeListView, starting_question_number:", starting_question_number)
+        number_of_questions = self.kwargs.get('number_of_questions')
+        print("QuestionRangeListView, number_of_questions:", number_of_questions)
+        
+        #data = json.loads(request.body)
+        #quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
+        # print("Received quiz_attempt_id:", quiz_attempt_id)
+        
+        questions = Question.objects.filter(
+            quiz_id=pk,
+            question_number__gte=starting_question_number
+        ).order_by('question_number')[:number_of_questions]
+        
+        if questions.exists():
+            return Response({
+            "questions": QuestionSerializer(questions, many=True).data,
+        })
+        else:
+            return Response({"questions": None})
+
+        
 
 def create_azure_audio(text, language='en'):
     VOICE_MAP = {

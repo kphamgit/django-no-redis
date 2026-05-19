@@ -80,6 +80,7 @@ class Question(models.Model):
     button_cloze_options=models.TextField(max_length=200, blank=True, null=True, default="")
     explanation = models.TextField(max_length=1000, blank=True, null=True, default="")
     hint = models.CharField(max_length=500, blank=True, null=True, default="")
+    question_purpose = models.CharField(max_length=50, blank=True, null=True, default="practice")  # e.g., "practice", "tutorial",
     def __str__(self):
         return f"{self.question_number}"
     

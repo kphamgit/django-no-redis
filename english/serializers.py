@@ -7,7 +7,7 @@ class QuestionSerializer(serializers.ModelSerializer):
     #video_segment = serializers.PrimaryKeyRelatedField(queryset=VideoSegment.objects.all(), required=False, allow_null=False)
     class Meta:
         model = Question
-        fields = ["id", "quiz_id", "video_segment_id", "question_number", "content", "content_language", "format", "answer_key", "instructions", 
+        fields = ["id", "quiz_id", "video_segment_id", "question_number", "question_purpose", "content", "content_language", "format", "answer_key", "instructions", 
         "prompt", "audio_str", "score", "button_cloze_options", "timeout", "hint", "explanation"]
         #fields = '__all__'
 

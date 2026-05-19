@@ -27,7 +27,13 @@ urlpatterns = [
     path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),
     
     #mark_completed
-    path("video_quiz_attempts/", views.create_video_quiz_attempt),     # pk is quiz_id
+    path("video_quiz_attempts/create/", views.create_video_quiz_attempt),     # pk is quiz_id
+    
+    path("video_segments/<int:pk>/get_questions/", views.get_video_segment_questions),     # pk is quiz_id
+    
+    # path("/<int:pk>/questions/<int:starting_question_number>/<int:number_of_questions>/", views.QuestionRangeListView.as_view(), name="question-range-list"),
+    
+    
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create_react_native/<int:pk>/", views.get_or_create_quiz_attempt_react_native),   
     # path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
@@ -38,9 +44,10 @@ urlpatterns = [
     # api.get(`/api/quiz_attempts/${quizAttempt?.id}/incorrect_questions/`) //replenish_incorrect_questions
     path("quiz_attempts/<int:pk>/incorrect_questions/", views.get_incorrect_questions),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/replenish_incorrect_questions/", views.replenish_incorrect_questions),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/replenish_incorrect_questions_react_native/", views.replenish_incorrect_questions_react_native),  # pk is quiz_attempt_id
     
     path("quiz_attempts/<int:pk>/continue/", views.continue_quiz_attempt),  # pk is quiz_attempt_id   
-    # path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id
+  
     path("video_question_attempts/<int:pk>/process/", views.process_video_question_attempt),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process/", views.process_question_attempt),  # pk is quiz_attempt_id
     path("question_attempts/<int:pk>/process_timeout/", views.process_timeout),  # pk is quiz_attempt_id
@@ -50,7 +57,9 @@ urlpatterns = [
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/", views.get_question_by_number),
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/live/", views.get_question_by_number_live),
   
-   
+    # use only by tienganhbabbel
+    path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id
+    
     #/api/video_question_attempts/261/process/
     #live_question_number
 ] 

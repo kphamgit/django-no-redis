@@ -14,6 +14,7 @@ urlpatterns = [
     path("quizzes/<int:pk>/questions", views.QuestionListView.as_view(), name="question-list"),
     # retrieve questions in a quiz starting from a specific question number
     path("quizzes/<int:pk>/questions/<int:starting_question_number>", views.QuestionPartialListView.as_view(), name="question-list"),
+    path("quizzes/<int:pk>/questions/<int:starting_question_number>/<int:number_of_questions>/", views.QuestionRangeListView.as_view(), name="question-range-list"),
     path("quizzes/<int:pk>/video_segments/", views.VideoSegmentListView.as_view(), name="video-segment-list"),
     # for video segments list, pk is quiz_id of the quiz that the video segments belong to
     
