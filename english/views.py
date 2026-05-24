@@ -127,7 +127,7 @@ class QuestionPartialListView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         print(" ******* QuestionPartialListView called.........")
         pk = self.kwargs.get('pk')
-        starting_question_number = self.kwargs.get('starting_question_number')
+        # starting_question_number = self.kwargs.get('starting_question_number')
         
         data = json.loads(request.body)
         quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
@@ -171,7 +171,7 @@ class QuestionRangeListView(generics.GenericAPIView):
         starting_question_number = self.kwargs.get('starting_question_number')
         print("QuestionRangeListView, starting_question_number:", starting_question_number)
         number_of_questions = self.kwargs.get('number_of_questions')
-        print("QuestionRangeListView, number_of_questions:", number_of_questions)
+        # print("QuestionRangeListView, number_of_questions:", number_of_questions)
         
         #data = json.loads(request.body)
         #quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
@@ -636,7 +636,7 @@ class UnitEditView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
     #queryset = Question.objects.filter(question_id=question_id)  # Add this line
     def perform_update(self, serializer):
-        #print("request data:", self.request.data)
+        print("UnitEditView request data:", self.request.data)
         if serializer.is_valid():
             print("Serializer is valid")
             serializer.save(
@@ -655,10 +655,11 @@ class UnitEditView(generics.RetrieveUpdateAPIView):
 
 
 class CategoryEditView(generics.RetrieveUpdateAPIView):
+   
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
     def perform_update(self, serializer):
-        #print("request data:", self.request.data)
+        print("perform_update request data:", self.request.data)
         if serializer.is_valid():
             print("Serializer is valid")
             serializer.save(
