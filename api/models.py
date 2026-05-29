@@ -111,6 +111,7 @@ class QuestionAttempt(models.Model):
     completed = models.BooleanField(default=False)
     corrected = models.BooleanField(default=None, null=True)
     review_state = models.BooleanField(default=False, null=False)
+    stale = models.BooleanField(default=False)
     # this flag is for wrong attempts that have been corrected by the user,
     # so that they won't be counted as wrong when collecting incorrect questions for quiz review
     answer = models.CharField(max_length=1000, blank=True, null=True, default="")

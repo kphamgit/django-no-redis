@@ -37,11 +37,13 @@ urlpatterns = [
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create_react_native/<int:pk>/", views.get_or_create_quiz_attempt_react_native),   
     # path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
-    path("quiz_attempts/<int:pk>/create_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
+    # path("quiz_attempts/<int:pk>/create_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_next_question_attempt), 
     path("quiz_attempts/<int:pk>/reset/", views.reset_quiz_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/mark_completed/", views.mark_quiz_attempt_completed),  # pk is quiz_attempt_id
-    
+    path("quiz_attempts/<int:pk>/set_review_mode/", views.set_review_mode),  # pk is quiz_attempt_id
     # api.get(`/api/quiz_attempts/${quizAttempt?.id}/incorrect_questions/`) //replenish_incorrect_questions
+    path("quiz_attempts/<int:pk>/get_incorrect_question_attempt/", views.get_next_incorrect_question_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/incorrect_questions/", views.get_incorrect_questions),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/replenish_incorrect_questions/", views.replenish_incorrect_questions),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/replenish_incorrect_questions_react_native/", views.replenish_incorrect_questions_react_native),  # pk is quiz_attempt_id

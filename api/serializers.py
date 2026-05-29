@@ -31,7 +31,7 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
 class QuestionAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuestionAttempt
-        fields = ["id", "question_id", "quiz_attempt_id", "question_attempt_number",  "error_flag" , "corrected", "review_state", "score",  "completed", "question_id"]
+        fields = ["id", "question_id", "quiz_attempt_id", "question_attempt_number",  "error_flag" , "corrected", "review_state", "score", "stale" ,  "completed", "question_id"]
 
   #question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="question_attempts")
  
