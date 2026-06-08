@@ -7,7 +7,7 @@ from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
      UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment, AssignmentStudent
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -623,7 +623,7 @@ def get_or_create_quiz_attempt(request, pk):
         """
             Create or retrieve a QuizAttempt for the given quiz and user.
         """
-        # print("***** get_or_create_quiz_attempt called.................")
+        # print("********** get_or_create_quiz_attempt called.................")
         # get number_of_questions_to_preload from request.data, default to 3
         number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
         #print("***** get_or_create_quiz_attempt_react_native called. Number of questions preloaded:", number_of_questions_to_preload)
@@ -657,7 +657,7 @@ def get_or_create_quiz_attempt(request, pk):
                     "created": True,
                     "quiz_attempt": serializer.data,
                     "question": QuestionSerializer(first_question).data,
-                    "question_attempt": QuestionAttemptSerializer(question_attempt).data,
+                    "question_attempt_id": question_attempt.id,
                 })
             else:
                 # no questions in the quiz
@@ -666,7 +666,7 @@ def get_or_create_quiz_attempt(request, pk):
                     "quiz_attempt": serializer.data,
                     "created": True,
                     "question": None,
-                    "question_attempt": None,
+                    "question_attempt_id": None,
                 })                
         else:
             # print("^^^^^^^^^^^^^^^^^^^^^^^ QuizAttempt already exists.")
@@ -675,56 +675,38 @@ def get_or_create_quiz_attempt(request, pk):
             #print(" ^^^^^^^^^^^^^^^^^^^^^^ Last completed question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")         
             # check if last question attempt is completed
             if last_question_attempt and not last_question_attempt.completed:
+                # print("Last question attempt is not completed, last question attempt id = ", last_question_attempt.id , " pending question id:", last_question_attempt.question.id)
                 pending_question = last_question_attempt.question
-                pending_question_number = pending_question.question_number
-                    # also retrieve the next 2 questions after the pending question,
-                    # using the question_number of the pending question,
-                questions = Question.objects.filter(quiz_id=pk, question_number__gte=pending_question_number).order_by('question_number')[:3]
                 return Response({
                     "quiz_attempt": serializer.data,
                     "created": False,
-                    "questions": QuestionSerializer(questions, many=True).data,
+                    "question": QuestionSerializer(pending_question).data,
                     "question_attempt_id": last_question_attempt.id,
                 })
-            else:
-                # if last question attempt was completed, grab the next 3 questions after the last completed question, using the question_number of the last completed question, and create a question attempt for the first question among the next 3 questions
-                if (last_question_attempt is None):
-                    # no attempt yet, treat like a new quiz attempt
-                    questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
+            elif last_question_attempt and last_question_attempt.completed:
+                # print("Last question attempt is completed, last completed question id:", last_question_attempt.question.id)
+                # if last question attempt was completed, grab the next question after the last completed question, using the question_number of the last completed question, and create a question attempt for the next question
+                last_question_completed = last_question_attempt.question
+                next_question = Question.objects.filter(quiz_id=pk, question_number__gt=last_question_completed.question_number).order_by('question_number').first()
+                if next_question:
+                    question_attempt = QuestionAttempt.objects.create(
+                        quiz_attempt=quiz_attempt,
+                        question=next_question,
+                        completed=False,
+                    )
+                    # print("Created next QuestionAttempt for Question id:", next_question.id, "question_attempt id:", question_attempt.id)
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": False,
-                        "questions": QuestionSerializer(questions, many=True).data,
-                        "question_attempt_id": None,
+                        "question": QuestionSerializer(next_question).data,
+                        "question_attempt": QuestionAttemptSerializer(question_attempt).data,
                     })
-                else:
-                    last_question_completed = last_question_attempt.question
-                    #last_question_completed_question_number = last_question_completed.question_number
-                    # grab the next 3 questions after the last completed question
-                    questions = Question.objects.filter(quiz_id=pk, question_number__gt=last_question_completed.question_number).order_by('question_number')[:3]
-                    next_question = Question.objects.filter(quiz_id=pk, question_number__gt=last_question_attempt.question.question_number).order_by('question_number').first()
-                    if next_question:
-                        question_attempt = QuestionAttempt.objects.create(
-                            quiz_attempt=quiz_attempt,
-                            question=next_question,
-                            completed=False,
-                        )
-                        #print("Created next QuestionAttempt for Question id:", next_question.id, "question_attempt id:", question_attempt.id)
-                        return Response({
-                            "quiz_attempt": serializer.data,
-                            "created": False,
-                            "questions": QuestionSerializer(questions, many=True).data,
-                            "question_attempt_id": question_attempt.id,
-                        })
-                    else:
-                        # no more questions available
-                        #print("No more questions available in the quiz.")
-                        return Response({
-                            "quiz_attempt": serializer.data,
-                            "created": False,
-                            "questions": None,
-                            "question_attempt_id": None,
-                        })
+            else:       
+                # should not be here, send a error message back
+                print("Error: No question attempts found for this quiz attempt, which should not happen. QuizAttempt id:", quiz_attempt.id)
+                return Response({
+                    "error": "No question attempts found for this quiz attempt, which should not happen."
+                }, status=500)
                   
 
 from django.core import serializers
@@ -1583,5 +1565,23 @@ def update_question_attempt(request, pk):
               return Response({
                 "error": "Question attempt not found."
               }, status=404)
-              
+
+
+@api_view(["GET"])
+def get_pending_assignments(request):
+    pending = AssignmentStudent.objects.filter(
+        user=request.user,
+        status="pending"
+    ).select_related('assignment__quiz')
+    data = [
+        {
+            "assignment_id": a.assignment.id,
+            "quiz_id": a.assignment.quiz.id,
+            "quiz_name": a.assignment.quiz.name,
+            "assigned_at": a.assigned_at,
+        }
+        for a in pending
+    ]
+    return Response({"pending_assignments": data})
+
 

@@ -1,6 +1,6 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
@@ -886,6 +886,36 @@ def move_quiz(request, pk):
         return Response({
             "error": "Unit not found for the given new_unit_id."
         }, status=404)
+        
+@api_view(["POST"])
+def assign_quiz(request, pk):
+    # print studentNames from request.data
+    print("assign_quiz called with quiz_id:", pk, " request.data:", request.data)
+    # studentNames is a string separated by commas, we convert it to a list
+    user_names_str = request.data.get('studentNames', '')
+    user_names = [name.strip() for name in user_names_str.split(',') if name.strip()]
+    # for each student name, create a user object if it doesn't exist,
+    # create an assignment object 
+    # and assign it to each user in 
+    # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
+    try:
+        quiz = Quiz.objects.get(id=pk)
+        assignment = Assignment.objects.create(quiz=quiz)
+        for user_name in user_names:
+            user = User.objects.filter(username=user_name).first()
+            if user is None:
+                print(f"User with username {user_name} not found, skipping.")
+                continue
+            AssignmentStudent.objects.create(assignment=assignment, user=user)
+
+        return Response({
+            "message": f"Quiz  assigned successfully."
+        })
+    except Quiz.DoesNotExist:
+        return Response({
+            "error": "Quiz not found for the given quiz_id."
+        }, status=404)
+   
     
 def get_audio_url(file_key):
     # Initialize the client with the v4 signature config

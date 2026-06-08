@@ -112,13 +112,31 @@ class QuestionAttempt(models.Model):
     corrected = models.BooleanField(default=None, null=True)
     review_state = models.BooleanField(default=False, null=False)
     stale = models.BooleanField(default=False)
-    # this flag is for wrong attempts that have been corrected by the user,
-    # so that they won't be counted as wrong when collecting incorrect questions for quiz review
+    # when the users makes several wrong attempts for the same question,
+    # we only keep track of the last question attempt for that question which is wrong,
+    # and we set "stale" to True for the previous attempts.
     answer = models.CharField(max_length=1000, blank=True, null=True, default="")
 
     def __str__(self):
         return f"Quesion Attempt for id {self.id} with question attempt number: {self.question.question_number}"
     
+class Assignment(models.Model):
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="assignments")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Assignment {self.id} - Quiz: {self.quiz.name}"
+
+
+class AssignmentStudent(models.Model):
+    assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name="student_assignments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="student_assignments")
+    status = models.CharField(max_length=50, default="pending")
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} - Assignment {self.assignment.id} - {self.status}"
+
 class DictEntry(models.Model):
     head_word = models.CharField(max_length=100)
     source = models.CharField(max_length=60, blank=True, null=True)  # e.g., "longman", "ho-ngoc-duc-stardict"

@@ -58,6 +58,7 @@ urlpatterns = [
     path("send_live_question_number/<int:pk>/", views.send_live_question_number),  # pk is live question number
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/", views.get_question_by_number),
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/live/", views.get_question_by_number_live),
+    path("assignments/pending/", views.get_pending_assignments, name="pending-assignments"),
   
     # use only by tienganhbabbel
     path("question_attempts/<int:pk>/update/", views.update_question_attempt),  # pk is quiz_attempt_id

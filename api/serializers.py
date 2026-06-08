@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Note, Category, Level, Unit, Quiz, Question, QuestionAttempt, QuizAttempt
+from .models import Note, Category, Level, Unit, Quiz, Question, QuestionAttempt, QuizAttempt, Assignment, AssignmentStudent
 from english.serializers import QuizSerializer, VideoSegmentSerializer, UnitSerializer
 
 class UserSerializer(serializers.ModelSerializer):
@@ -23,6 +23,10 @@ class QuizDetailSerializer(serializers.ModelSerializer):
         #    "questions": {"required": False}  # Make the "questions" field optional
         # }
 
+
+    
+    
+    # Add any other fields you need for the assignment
 class QuizAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizAttempt
@@ -80,4 +84,21 @@ class LevelWithCategoriesSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "categories": {"required": False}  # Make the "questions" field optional
         }
+
+
+class AssignmentStudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssignmentStudent
+        fields = ["id", "assignment", "user", "status", "assigned_at"]
+        extra_kwargs = {
+            "status": {"required": False},
+        }
+
+
+class AssignmentSerializer(serializers.ModelSerializer):
+    student_assignments = AssignmentStudentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Assignment
+        fields = ["id", "quiz", "created_at", "student_assignments"]
     
