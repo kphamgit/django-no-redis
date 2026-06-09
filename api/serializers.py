@@ -100,5 +100,5 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assignment
-        fields = ["id", "quiz", "created_at", "student_assignments"]
+        fields = ["id", "quiz", "category_id",  "created_at", "student_assignments"]
     

@@ -890,7 +890,7 @@ def move_quiz(request, pk):
 @api_view(["POST"])
 def assign_quiz(request, pk):
     # print studentNames from request.data
-    print("assign_quiz called with quiz_id:", pk, " request.data:", request.data)
+    # print("assign_quiz called with quiz_id:", pk, " request.data:", request.data)
     # studentNames is a string separated by commas, we convert it to a list
     user_names_str = request.data.get('studentNames', '')
     user_names = [name.strip() for name in user_names_str.split(',') if name.strip()]
@@ -900,11 +900,16 @@ def assign_quiz(request, pk):
     # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
     try:
         quiz = Quiz.objects.get(id=pk)
-        assignment = Assignment.objects.create(quiz=quiz)
+        # get the unit for the quiz
+        unit = quiz.unit
+        # get the category_id for the unit
+        category = unit.category
+        # print("********** Quiz:", quiz.id, " Unit:", unit.name, " Category id:", category.id)
+        assignment = Assignment.objects.create(quiz=quiz, category_id=category.id)
         for user_name in user_names:
             user = User.objects.filter(username=user_name).first()
             if user is None:
-                print(f"User with username {user_name} not found, skipping.")
+                # print(f"User with username {user_name} not found, skipping.")
                 continue
             AssignmentStudent.objects.create(assignment=assignment, user=user)
 

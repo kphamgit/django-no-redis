@@ -7,7 +7,7 @@ from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
      UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, VideoSegment, AssignmentStudent
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -985,6 +985,28 @@ def mark_quiz_attempt_completed(request, pk):
         # print("***** Marking QuizAttempt id:", pk, " as completed.")
         quiz_attempt.completion_status = "completed"
         quiz_attempt.save()
+        #   check to see if this quiz and user is part of an assignment, 
+        # if so, update the corresponding assignment 
+        #  submission status to "completed" as well, by finding the assignment submission
+        #  with the same quiz id and user name as this quiz attempt,
+        
+        #  First get user_name from quiz attempt
+        quiz_id = quiz_attempt.quiz_id
+        # find the Assignment with the same quiz id
+        assignment = Assignment.objects.filter(quiz_id=quiz_id).first()
+        
+        user_name = quiz_attempt.user_name
+        # find user id for this user name
+        user_id = User.objects.filter(username=user_name).first().id
+        
+        # Then find the assignmentStudent with the same assignment id and user id
+        assignment_student = AssignmentStudent.objects.filter(assignment_id=assignment.id, user_id=user_id).first()
+        print("Found AssignmentStudent:", assignment_student)
+        if assignment_student:
+            # mark the assignment student  status to completed as well
+            assignment_student.status = "completed"
+            assignment_student.save()
+            
         return Response({
             "message": "Quiz attempt has been marked as completed.",
             "quiz_attempt_id": pk,
@@ -1577,6 +1599,7 @@ def get_pending_assignments(request):
         {
             "assignment_id": a.assignment.id,
             "quiz_id": a.assignment.quiz.id,
+            "category_id": a.assignment.category_id,
             "quiz_name": a.assignment.quiz.name,
             "assigned_at": a.assigned_at,
         }
