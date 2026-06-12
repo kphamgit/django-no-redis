@@ -1,7 +1,7 @@
 # Create your views here.
 from django.shortcuts import render
 from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent
-from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, \
+from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, CardSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
     LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
@@ -298,6 +298,26 @@ class QuizCreateView(generics.ListCreateAPIView):
                 name=self.request.data.get('name'),
                 video_url=self.request.data.get('video_url'),
                 quiz_number=self.request.data.get('quiz_number'),
+            )
+        else:
+            print(serializer.errors)
+            
+class CardCreateView(generics.ListCreateAPIView):
+    serializer_class = CardSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        #print("QuizCreateView perform_create, request data:", self.request.data)
+        if serializer.is_valid():
+            serializer.save(
+                quiz_id=self.request.data.get('quiz_id'),
+                text=self.request.data.get('text'),
+                difficulty=self.request.data.get('difficulty', 0),
+                next_review_at=self.request.data.get('next_review_at'),
+                user_id=self.request.data.get('user_id'),
+                easiness=self.request.data.get('easiness', 2.5),
+                interval=self.request.data.get('interval', 1),
+                repetitions=self.request.data.get('repetitions', 0),
             )
         else:
             print(serializer.errors)

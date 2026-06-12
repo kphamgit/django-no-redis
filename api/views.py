@@ -4,10 +4,13 @@ from django.shortcuts import render
 from django.contrib.auth.models import User
 from rest_framework import generics
 from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
-     UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer
+     UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer, CardSerializer
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent, Card, CardReview
+from .spaced_repetition import apply_sm2
+from django.utils import timezone
+from django.db.models import Q
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -1606,5 +1609,184 @@ def get_pending_assignments(request):
         for a in pending
     ]
     return Response({"pending_assignments": data})
+
+
+class CardCreateView(generics.CreateAPIView):
+    queryset = Card.objects.all()
+    serializer_class = CardSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# Hard-coded definition for the back of a card (placeholder until real definitions are wired in).
+PLACEHOLDER_DEFINITION = "Definition coming soon — this is placeholder text for the back of the card."
+
+
+def _build_mc_options(card, definition_pool):
+    """Build shuffled multiple-choice options for a card.
+
+    Returns (correct_definition, options) where options is a shuffled list of
+    {"definition": str, "is_correct": bool}: the card's own definition plus up to
+    3 distractors drawn from definition_pool.
+    """
+    import random
+    correct_def = card.definition or PLACEHOLDER_DEFINITION
+    distractors = [d for d in definition_pool if d != card.definition]
+    random.shuffle(distractors)
+    distractors = distractors[:3]
+    options = [{"definition": correct_def, "is_correct": True}]
+    options += [{"definition": d, "is_correct": False} for d in distractors]
+    random.shuffle(options)
+    return correct_def, options
+
+
+def _serialize_due_card(card, review, definition_pool):
+    """Build the API payload for one due card."""
+    correct_def, options = _build_mc_options(card, definition_pool)
+    return {
+        "id": card.id,
+        "text": card.text,                 # front (the word)
+        "definition": correct_def,         # back (correct definition, for post-answer reveal)
+        "options": options,                # shuffled multiple-choice options
+        "easiness": review.easiness if review else 2.5,
+        "interval": review.interval if review else 0,
+        "repetitions": review.repetitions if review else 0,
+        "next_review_at": review.next_review_at if review else None,
+    }
+
+
+@api_view(['GET'])
+def get_due_cards(request, quiz_id):
+    """Return the cards of a quiz that are due for review for the given user.
+
+    A card is "due" if the user has never reviewed it (no CardReview row) or its
+    next_review_at is in the past. Identify the user via the ?user_name= query param,
+    matching how the quiz-attempt endpoints identify users.
+    """
+    user_name = request.query_params.get('user_name')
+    try:
+        user = User.objects.get(username=user_name)
+    except User.DoesNotExist:
+        return Response({"error": f"User '{user_name}' not found."}, status=404)
+
+    now = timezone.now()
+    # Map card_id -> CardReview for this user, for this quiz's cards.
+    reviews = {
+        r.card_id: r
+        for r in CardReview.objects.filter(user=user, card__quiz_id=quiz_id)
+    }
+
+    all_cards = list(Card.objects.filter(quiz_id=quiz_id).order_by('id'))
+    # Pool of distinct, non-empty definitions in this quiz, used as multiple-choice distractors.
+    definition_pool = list({c.definition for c in all_cards if c.definition})
+
+    due_cards = []
+    for card in all_cards:
+        review = reviews.get(card.id)
+        is_due = (
+            review is None
+            or review.next_review_at is None
+            or review.next_review_at <= now
+        )
+        if is_due:
+            due_cards.append(_serialize_due_card(card, review, definition_pool))
+
+    return Response({"due_cards": due_cards})
+
+
+@api_view(['POST'])
+def review_card(request, card_id):
+    """Apply an SM-2 review to a card for the given user.
+
+    Body: { "user_name": str, "quality": int 0..5 }
+    Creates the user's CardReview on first review, runs SM-2, persists, and returns
+    the updated scheduling so the client can show "next review in N days".
+    """
+    user_name = request.data.get('user_name')
+    try:
+        quality = int(request.data.get('quality'))
+    except (TypeError, ValueError):
+        return Response({"error": "quality must be an integer 0..5."}, status=400)
+
+    try:
+        user = User.objects.get(username=user_name)
+    except User.DoesNotExist:
+        return Response({"error": f"User '{user_name}' not found."}, status=404)
+
+    try:
+        card = Card.objects.get(pk=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": f"Card {card_id} not found."}, status=404)
+
+    review, _created = CardReview.objects.get_or_create(user=user, card=card)
+    lapsed = apply_sm2(review, quality)
+    review.save()
+
+    return Response({
+        "card_id": card.id,
+        "easiness": review.easiness,
+        "interval": review.interval,
+        "repetitions": review.repetitions,
+        "next_review_at": review.next_review_at,
+        "lapsed": lapsed,
+    })
+
+
+@api_view(['POST'])
+def reset_card_progress(request, quiz_id):
+    """DEV helper: delete the user's spaced-repetition progress for a quiz's cards,
+    so every card becomes "due" again on the next review session.
+
+    Body: { "user_name": str }
+    """
+    user_name = request.data.get('user_name')
+    try:
+        user = User.objects.get(username=user_name)
+    except User.DoesNotExist:
+        return Response({"error": f"User '{user_name}' not found."}, status=404)
+
+    deleted, _ = CardReview.objects.filter(user=user, card__quiz_id=quiz_id).delete()
+    return Response({"deleted": deleted, "quiz_id": quiz_id, "user_name": user_name})
+
+
+@api_view(['GET'])
+def get_all_due_cards(request):
+    """Return ALL of a user's due cards across every quiz (their vocabulary review).
+
+    A card is due if the user has never reviewed it (no CardReview row) OR its
+    CardReview.next_review_at is in the past. This includes brand-new words the
+    student hasn't encountered yet. Same multiple-choice payload as the per-quiz
+    endpoint; distractors are drawn from the card's own quiz.
+    Identify the user via the ?user_name= query param.
+    """
+    user_name = request.query_params.get('user_name')
+    try:
+        user = User.objects.get(username=user_name)
+    except User.DoesNotExist:
+        return Response({"error": f"User '{user_name}' not found."}, status=404)
+
+    now = timezone.now()
+    reviews = {r.card_id: r for r in CardReview.objects.filter(user=user)}
+
+    all_cards = list(Card.objects.all().order_by('quiz_id', 'id'))
+
+    # Per-quiz distractor pools (distinct, non-empty definitions within each quiz).
+    quiz_defs = {}
+    for c in all_cards:
+        if c.definition:
+            quiz_defs.setdefault(c.quiz_id, set()).add(c.definition)
+    pools = {qid: list(defs) for qid, defs in quiz_defs.items()}
+
+    due_cards = []
+    for card in all_cards:
+        review = reviews.get(card.id)
+        is_due = (
+            review is None
+            or review.next_review_at is None
+            or review.next_review_at <= now
+        )
+        if is_due:
+            due_cards.append(_serialize_due_card(card, review, pools.get(card.quiz_id, [])))
+
+    return Response({"due_cards": due_cards})
 
 

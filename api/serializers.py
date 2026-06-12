@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Note, Category, Level, Unit, Quiz, Question, QuestionAttempt, QuizAttempt, Assignment, AssignmentStudent
+from .models import Category, Level, Unit, Quiz, QuestionAttempt, QuizAttempt, Assignment, AssignmentStudent, Card
 from english.serializers import QuizSerializer, VideoSegmentSerializer, UnitSerializer
 
 class UserSerializer(serializers.ModelSerializer):
@@ -101,4 +101,11 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = ["id", "quiz", "category_id",  "created_at", "student_assignments"]
-    
+
+
+class CardSerializer(serializers.ModelSerializer):
+    quiz_id = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), source='quiz')
+
+    class Meta:
+        model = Card
+        fields = ["id", "quiz_id", "text", "definition", "difficulty"]

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 #from .models import Note
-from api.models import Unit, Quiz, Question, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
+from api.models import Unit, Quiz, Question, Card, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
 from django.contrib.auth.models import User
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -61,6 +61,12 @@ class QuizSerializer(serializers.ModelSerializer):
            "questions": {"required": False},  # Make the "questions" field optional
            "video_segments": {"required": False}  # Make the "video_segments" field optional
         }
+        
+class CardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Card
+        fields = ["id", "quiz_id", "text", "definition", "difficulty"]
+    
 
 class VideoSegmentIdSerializer(serializers.ModelSerializer):
     class Meta:

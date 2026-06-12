@@ -11,15 +11,6 @@ class Profile(models.Model):
     def __str__(self):
         return f'{self.user.username} Profile'
 
-class Note(models.Model):
-    title = models.CharField(max_length=100)
-    content = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notes")
-
-    def __str__(self):
-        return self.title
-
 class Level(models.Model):
     name = models.CharField(max_length=100)
     level_number = models.IntegerField()
@@ -120,6 +111,34 @@ class QuestionAttempt(models.Model):
     def __str__(self):
         return f"Quesion Attempt for id {self.id} with question attempt number: {self.question.question_number}"
     
+class Card(models.Model):
+    # Shared card content (front = text, back = definition). One row per word per quiz,
+    # reused by all users. Per-user spaced-repetition scheduling lives in CardReview.
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="cards", null=True, blank=True)
+    text = models.CharField(max_length=200)
+    definition = models.TextField(blank=True, default="")  # back of the card
+    difficulty = models.SmallIntegerField(default=0)
+
+    def __str__(self):
+        return self.text
+
+
+class CardReview(models.Model):
+    # Per-user SM-2 scheduling state for a card. Created on the user's first review of the card.
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="card_reviews")
+    card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="reviews")
+    easiness = models.FloatField(default=2.5)
+    interval = models.IntegerField(default=0)
+    repetitions = models.IntegerField(default=0)
+    next_review_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [("user", "card")]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.card.text} (next: {self.next_review_at})"
+
+
 class Assignment(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="assignments")
     category_id = models.IntegerField(null=True, blank=True)
