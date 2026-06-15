@@ -68,6 +68,7 @@ urlpatterns = [
     path("quiz/renumber", views.QuizRenumberView.as_view(), name="quizzes-renumber"),
     path("question/renumber", views.QuestionRenumberView.as_view(), name="question-renumber"),
     path("video_segment/renumber", views.VideoSegmentRenumberView.as_view(), name="question-renumber"),
+    path("quizzes/<int:quiz_id>/location/", views.quiz_location, name="quiz-location"),
 
     path("get_recordings/", views.get_recordings, name="get-recordings"),
     path("delete-audio/", views.delete_audio, name="delete-audio"),

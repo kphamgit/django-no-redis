@@ -29,6 +29,7 @@ class LevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Level
         fields = ["id", "name", "level_number", "categories"]
+        extra_kwargs = {"categories": {"read_only": True}}
         
 class UserSerializer(serializers.ModelSerializer):
     class Meta:

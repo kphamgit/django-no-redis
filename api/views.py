@@ -1611,6 +1611,24 @@ def get_pending_assignments(request):
     return Response({"pending_assignments": data})
 
 
+@api_view(['GET'])
+def get_user_assignments(request, user_id):
+    assignments = AssignmentStudent.objects.filter(
+        user_id=user_id
+    ).select_related('assignment__quiz')
+    data = [
+        {
+            "assignment_id": a.assignment.id,
+            "quiz_id": a.assignment.quiz.id,
+            "quiz_name": a.assignment.quiz.name,
+            "status": a.status,
+            "assigned_at": a.assigned_at,
+        }
+        for a in assignments
+    ]
+    return Response({"assignments": data})
+
+
 class CardCreateView(generics.CreateAPIView):
     queryset = Card.objects.all()
     serializer_class = CardSerializer

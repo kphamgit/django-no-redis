@@ -1462,3 +1462,15 @@ def nlp_test(request):
     except Exception as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=500)
 """
+
+@api_view(['GET'])
+def quiz_location(request, quiz_id):
+    try:
+        quiz = Quiz.objects.select_related('unit__category__level').get(pk=quiz_id)
+        unit = quiz.unit
+        category = unit.category
+        level = category.level
+        location = f"Level: {level.name} > Category: {category.name} > Unit: {unit.name} > Quiz: {quiz.name}"
+        return Response({"location": location})
+    except Quiz.DoesNotExist:
+        return Response({"error": f"Quiz with id {quiz_id} not found."}, status=404)

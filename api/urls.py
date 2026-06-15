@@ -59,6 +59,7 @@ urlpatterns = [
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/", views.get_question_by_number),
     path("quizzes/<int:quiz_id>/questions/<int:question_number>/live/", views.get_question_by_number_live),
     path("assignments/pending/", views.get_pending_assignments, name="pending-assignments"),
+    path("users/<int:user_id>/assignments/", views.get_user_assignments, name="user-assignments"),
   
     path("cards/", views.CardCreateView.as_view(), name="card-create"),
     path("quizzes/<int:quiz_id>/cards/due/", views.get_due_cards, name="due-cards"),
