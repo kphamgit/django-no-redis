@@ -307,20 +307,7 @@ class CardCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("QuizCreateView perform_create, request data:", self.request.data)
-        if serializer.is_valid():
-            serializer.save(
-                quiz_id=self.request.data.get('quiz_id'),
-                text=self.request.data.get('text'),
-                difficulty=self.request.data.get('difficulty', 0),
-                next_review_at=self.request.data.get('next_review_at'),
-                user_id=self.request.data.get('user_id'),
-                easiness=self.request.data.get('easiness', 2.5),
-                interval=self.request.data.get('interval', 1),
-                repetitions=self.request.data.get('repetitions', 0),
-            )
-        else:
-            print(serializer.errors)
+        serializer.save()
 
 class VideoSegmentCreateView(generics.ListCreateAPIView):
     from .serializers import VideoSegmentSerializer

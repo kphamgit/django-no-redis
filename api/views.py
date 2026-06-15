@@ -8,15 +8,14 @@ from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent, Card, CardReview
-from .spaced_repetition import apply_sm2
-from django.utils import timezone
-from django.db.models import Q
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
 from django.conf import settings
+from django.utils import timezone
+from .spaced_repetition import apply_sm2
 
-        
+
 import json
 
 #import redis
@@ -1004,7 +1003,7 @@ def mark_quiz_attempt_completed(request, pk):
         
         # Then find the assignmentStudent with the same assignment id and user id
         assignment_student = AssignmentStudent.objects.filter(assignment_id=assignment.id, user_id=user_id).first()
-        print("Found AssignmentStudent:", assignment_student)
+        # print("Found AssignmentStudent:", assignment_student)
         if assignment_student:
             # mark the assignment student  status to completed as well
             assignment_student.status = "completed"
@@ -1611,7 +1610,7 @@ def get_pending_assignments(request):
     return Response({"pending_assignments": data})
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 def get_user_assignments(request, user_id):
     assignments = AssignmentStudent.objects.filter(
         user_id=user_id
@@ -1620,6 +1619,7 @@ def get_user_assignments(request, user_id):
         {
             "assignment_id": a.assignment.id,
             "quiz_id": a.assignment.quiz.id,
+            "category_id": a.assignment.category_id,
             "quiz_name": a.assignment.quiz.name,
             "status": a.status,
             "assigned_at": a.assigned_at,
@@ -1629,22 +1629,15 @@ def get_user_assignments(request, user_id):
     return Response({"assignments": data})
 
 
-class CardCreateView(generics.CreateAPIView):
-    queryset = Card.objects.all()
-    serializer_class = CardSerializer
-    permission_classes = [IsAuthenticated]
-
-
-# Hard-coded definition for the back of a card (placeholder until real definitions are wired in).
+# Placeholder shown on the back of a card when no definition has been set yet.
 PLACEHOLDER_DEFINITION = "Definition coming soon — this is placeholder text for the back of the card."
 
 
 def _build_mc_options(card, definition_pool):
-    """Build shuffled multiple-choice options for a card.
+    """Return (correct_definition, shuffled options) for a card.
 
-    Returns (correct_definition, options) where options is a shuffled list of
-    {"definition": str, "is_correct": bool}: the card's own definition plus up to
-    3 distractors drawn from definition_pool.
+    options is a list of {"definition": str, "is_correct": bool}: the card's own
+    definition plus up to 3 distractors drawn from definition_pool.
     """
     import random
     correct_def = card.definition or PLACEHOLDER_DEFINITION
@@ -1658,7 +1651,7 @@ def _build_mc_options(card, definition_pool):
 
 
 def _serialize_due_card(card, review, definition_pool):
-    """Build the API payload for one due card."""
+    """Build the API payload (with multiple-choice options) for one due card."""
     correct_def, options = _build_mc_options(card, definition_pool)
     return {
         "id": card.id,
@@ -1672,30 +1665,24 @@ def _serialize_due_card(card, review, definition_pool):
     }
 
 
-@api_view(['GET'])
+@api_view(["GET"])
+def get_quiz_cards(request, quiz_id):
+    cards = Card.objects.filter(quiz_id=quiz_id).order_by('id')
+    serializer = CardSerializer(cards, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
 def get_due_cards(request, quiz_id):
-    """Return the cards of a quiz that are due for review for the given user.
-
-    A card is "due" if the user has never reviewed it (no CardReview row) or its
-    next_review_at is in the past. Identify the user via the ?user_name= query param,
-    matching how the quiz-attempt endpoints identify users.
-    """
-    user_name = request.query_params.get('user_name')
-    try:
-        user = User.objects.get(username=user_name)
-    except User.DoesNotExist:
-        return Response({"error": f"User '{user_name}' not found."}, status=404)
-
+    """Due cards for one quiz (shown before the quiz). A card is due if the user has
+    no review row for it yet or its next_review_at is in the past."""
     now = timezone.now()
-    # Map card_id -> CardReview for this user, for this quiz's cards.
+    all_cards = list(Card.objects.filter(quiz_id=quiz_id).order_by('id'))
+    definition_pool = list({c.definition for c in all_cards if c.definition})
     reviews = {
         r.card_id: r
-        for r in CardReview.objects.filter(user=user, card__quiz_id=quiz_id)
+        for r in CardReview.objects.filter(user=request.user, card__quiz_id=quiz_id)
     }
-
-    all_cards = list(Card.objects.filter(quiz_id=quiz_id).order_by('id'))
-    # Pool of distinct, non-empty definitions in this quiz, used as multiple-choice distractors.
-    definition_pool = list({c.definition for c in all_cards if c.definition})
 
     due_cards = []
     for card in all_cards:
@@ -1711,88 +1698,22 @@ def get_due_cards(request, quiz_id):
     return Response({"due_cards": due_cards})
 
 
-@api_view(['POST'])
-def review_card(request, card_id):
-    """Apply an SM-2 review to a card for the given user.
-
-    Body: { "user_name": str, "quality": int 0..5 }
-    Creates the user's CardReview on first review, runs SM-2, persists, and returns
-    the updated scheduling so the client can show "next review in N days".
-    """
-    user_name = request.data.get('user_name')
-    try:
-        quality = int(request.data.get('quality'))
-    except (TypeError, ValueError):
-        return Response({"error": "quality must be an integer 0..5."}, status=400)
-
-    try:
-        user = User.objects.get(username=user_name)
-    except User.DoesNotExist:
-        return Response({"error": f"User '{user_name}' not found."}, status=404)
-
-    try:
-        card = Card.objects.get(pk=card_id)
-    except Card.DoesNotExist:
-        return Response({"error": f"Card {card_id} not found."}, status=404)
-
-    review, _created = CardReview.objects.get_or_create(user=user, card=card)
-    lapsed = apply_sm2(review, quality)
-    review.save()
-
-    return Response({
-        "card_id": card.id,
-        "easiness": review.easiness,
-        "interval": review.interval,
-        "repetitions": review.repetitions,
-        "next_review_at": review.next_review_at,
-        "lapsed": lapsed,
-    })
-
-
-@api_view(['POST'])
-def reset_card_progress(request, quiz_id):
-    """DEV helper: delete the user's spaced-repetition progress for a quiz's cards,
-    so every card becomes "due" again on the next review session.
-
-    Body: { "user_name": str }
-    """
-    user_name = request.data.get('user_name')
-    try:
-        user = User.objects.get(username=user_name)
-    except User.DoesNotExist:
-        return Response({"error": f"User '{user_name}' not found."}, status=404)
-
-    deleted, _ = CardReview.objects.filter(user=user, card__quiz_id=quiz_id).delete()
-    return Response({"deleted": deleted, "quiz_id": quiz_id, "user_name": user_name})
-
-
-@api_view(['GET'])
+@api_view(["GET"])
 def get_all_due_cards(request):
-    """Return ALL of a user's due cards across every quiz (their vocabulary review).
-
-    A card is due if the user has never reviewed it (no CardReview row) OR its
-    CardReview.next_review_at is in the past. This includes brand-new words the
-    student hasn't encountered yet. Same multiple-choice payload as the per-quiz
-    endpoint; distractors are drawn from the card's own quiz.
-    Identify the user via the ?user_name= query param.
-    """
-    user_name = request.query_params.get('user_name')
-    try:
-        user = User.objects.get(username=user_name)
-    except User.DoesNotExist:
-        return Response({"error": f"User '{user_name}' not found."}, status=404)
-
+    """All of a user's due cards across every quiz (the vocabulary review).
+    Includes never-seen cards (no review row yet) as well as cards whose
+    next_review_at is in the past."""
     now = timezone.now()
-    reviews = {r.card_id: r for r in CardReview.objects.filter(user=user)}
+    reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
+    all_cards = list(Card.objects.order_by('id'))
 
-    all_cards = list(Card.objects.all().order_by('quiz_id', 'id'))
-
-    # Per-quiz distractor pools (distinct, non-empty definitions within each quiz).
-    quiz_defs = {}
+    # Per-quiz distractor pools so options stay topically plausible.
+    pools = {}
     for c in all_cards:
         if c.definition:
-            quiz_defs.setdefault(c.quiz_id, set()).add(c.definition)
-    pools = {qid: list(defs) for qid, defs in quiz_defs.items()}
+            pools.setdefault(c.quiz_id, [])
+            if c.definition not in pools[c.quiz_id]:
+                pools[c.quiz_id].append(c.definition)
 
     due_cards = []
     for card in all_cards:
@@ -1806,5 +1727,29 @@ def get_all_due_cards(request):
             due_cards.append(_serialize_due_card(card, review, pools.get(card.quiz_id, [])))
 
     return Response({"due_cards": due_cards})
+
+
+@api_view(["POST"])
+def review_card(request, card_id):
+    try:
+        card = Card.objects.get(id=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": "Card not found."}, status=404)
+    quality = int(request.data.get('quality', 4))
+    review, _ = CardReview.objects.get_or_create(
+        user=request.user,
+        card=card,
+        defaults={'easiness': 2.5, 'interval': 0, 'repetitions': 0}
+    )
+    apply_sm2(review, quality)
+    review.save()
+    return Response(CardSerializer(card).data)
+
+
+@api_view(["POST"])
+def reset_card_progress(request, quiz_id):
+    card_ids = Card.objects.filter(quiz_id=quiz_id).values_list('id', flat=True)
+    CardReview.objects.filter(user=request.user, card_id__in=card_ids).delete()
+    return Response({"message": "Card progress reset successfully."})
 
 

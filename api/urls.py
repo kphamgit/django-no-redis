@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from django.http import JsonResponse
+from english import views as english_views
 
 
 #/api/quizzes/${quizId}/questions/${questionNumber}/`)
@@ -61,7 +62,8 @@ urlpatterns = [
     path("assignments/pending/", views.get_pending_assignments, name="pending-assignments"),
     path("users/<int:user_id>/assignments/", views.get_user_assignments, name="user-assignments"),
   
-    path("cards/", views.CardCreateView.as_view(), name="card-create"),
+    path("cards/", english_views.CardCreateView.as_view(), name="card-create"),
+    path("quizzes/<int:quiz_id>/cards/", views.get_quiz_cards, name="quiz-cards"),
     path("quizzes/<int:quiz_id>/cards/due/", views.get_due_cards, name="due-cards"),
     path("cards/due/", views.get_all_due_cards, name="all-due-cards"),
     path("cards/<int:card_id>/review/", views.review_card, name="review-card"),
