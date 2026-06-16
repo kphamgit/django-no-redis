@@ -1617,6 +1617,7 @@ def get_user_assignments(request, user_id):
     ).select_related('assignment__quiz')
     data = [
         {
+            "assignment_student_id": a.id,
             "assignment_id": a.assignment.id,
             "quiz_id": a.assignment.quiz.id,
             "category_id": a.assignment.category_id,
@@ -1627,6 +1628,16 @@ def get_user_assignments(request, user_id):
         for a in assignments
     ]
     return Response({"assignments": data})
+
+
+@api_view(["DELETE"])
+def delete_assignment_student(request, assignment_student_id):
+    try:
+        record = AssignmentStudent.objects.get(id=assignment_student_id)
+    except AssignmentStudent.DoesNotExist:
+        return Response({"error": "Assignment not found."}, status=404)
+    record.delete()
+    return Response(status=204)
 
 
 # Placeholder shown on the back of a card when no definition has been set yet.
