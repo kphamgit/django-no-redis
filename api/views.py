@@ -1683,6 +1683,16 @@ def get_quiz_cards(request, quiz_id):
     return Response(serializer.data)
 
 
+@api_view(["DELETE"])
+def delete_card(request, card_id):
+    try:
+        card = Card.objects.get(id=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": "Card not found."}, status=404)
+    card.delete()
+    return Response(status=204)
+
+
 @api_view(["GET"])
 def get_due_cards(request, quiz_id):
     """Due cards for one quiz (shown before the quiz). A card is due if the user has

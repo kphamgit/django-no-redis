@@ -65,6 +65,7 @@ urlpatterns = [
   
     path("cards/", english_views.CardCreateView.as_view(), name="card-create"),
     path("quizzes/<int:quiz_id>/cards/", views.get_quiz_cards, name="quiz-cards"),
+    path("cards/<int:card_id>/delete/", views.delete_card, name="delete-card"),
     path("quizzes/<int:quiz_id>/cards/due/", views.get_due_cards, name="due-cards"),
     path("cards/due/", views.get_all_due_cards, name="all-due-cards"),
     path("cards/<int:card_id>/review/", views.review_card, name="review-card"),
