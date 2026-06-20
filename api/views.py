@@ -90,18 +90,18 @@ def create_azure_audio(request):
     full_blob_name = ""
     text = ""
     if request.content_type == 'application/json':
-        print("create_azure_audio received JSON request body:", request.body)
+        # print("create_azure_audio received JSON request body:", request.body)
         data = json.loads(request.body)
         full_blob_name = data.get('blob_name', 'default_name') + ".mp3"
-        print("Received JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        # print("Received JSON request for create_azure_audio with full_blob_name:", full_blob_name)
         text = data.get('text', "What is that?")
     else:
             # Handle form-data or x-www-form-urlencoded
-        print("create_azure_audio received non-JSON request, using POST parameters:", request.POST)
+        # print("create_azure_audio received non-JSON request, using POST parameters:", request.POST)
         full_blob_name = request.POST.get('blog_name') + ".mp3"
-        print("Received non-JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        # print("Received non-JSON request for create_azure_audio with full_blob_name:", full_blob_name)
         text = request.POST.get('text', "What is that?")
-        print("Received non-JSON request for create_azure_audio with text:", text)
+        # print("Received non-JSON request for create_azure_audio with text:", text)
         
     # 1. Initialize Blob Client
     blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
@@ -112,8 +112,8 @@ def create_azure_audio(request):
         # Return the existing URL immediately
         return JsonResponse({'audio_url': blob_client.url})
 
-    print("AZURE_SPEECH_KEY:", settings.AZURE_SPEECH_KEY)
-    print("AZURE_SERVICE_REGION:", settings.AZURE_SERVICE_REGION)
+    # print("AZURE_SPEECH_KEY:", settings.AZURE_SPEECH_KEY)
+    # print("AZURE_SERVICE_REGION:", settings.AZURE_SERVICE_REGION)
     # 3. If it doesn't exist, proceed with synthesis
     speech_config = speechsdk.SpeechConfig(
         subscription=settings.AZURE_SPEECH_KEY, 
@@ -130,7 +130,7 @@ def create_azure_audio(request):
     result = synthesizer.speak_text_async(text).get()
 
     if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        print("Audio synthesis completed successfully for text:", text)
+        # print("Audio synthesis completed successfully for text:", text)
         # 4. Upload the new audio
         blob_client.upload_blob(
             result.audio_data, 
@@ -140,49 +140,6 @@ def create_azure_audio(request):
         return JsonResponse({'audio_url': blob_client.url})
     
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
-
-"""
-def create_azure_audio(text, blob_name):
-    container_name = "tts-audio"
-    #full_blob_name = f"{blob_name}.mp3"
-    full_blob_name = "What is that.mp3"
-    
-    # 1. Initialize Blob Client
-    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
-    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
-
-    # 2. Check if it already exists
-    if blob_client.exists():
-        # Return the existing URL immediately
-        return blob_client.url
-
-    # 3. If it doesn't exist, proceed with synthesis
-    speech_config = speechsdk.SpeechConfig(
-        subscription=settings.AZURE_SPEECH_KEY, 
-        region=settings.AZURE_SERVICE_REGION
-    )
-    speech_config.set_speech_synthesis_output_format(
-        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
-    )
-    
-    # Synthesize to memory
-    pull_stream = speechsdk.audio.PullAudioOutputStream()
-    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
-    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-    test_text = "What is that?"
-    result = synthesizer.speak_text_async(test_text).get()
-
-    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        # 4. Upload the new audio
-        blob_client.upload_blob(
-            result.audio_data, 
-            overwrite=True,
-            content_settings=ContentSettings(content_type='audio/mpeg')
-        )
-        return blob_client.url
-    
-    return None
-"""
 
 def get_audio_url(file_key):
     # Initialize the client with the v4 signature config
@@ -1614,7 +1571,7 @@ def get_pending_assignments(request):
 def get_user_assignments(request, user_id):
     assignments = AssignmentStudent.objects.filter(
         user_id=user_id
-    ).select_related('assignment__quiz')
+    ).select_related('assignment__quiz__unit__category__level')
     data = [
         {
             "assignment_student_id": a.id,
@@ -1622,6 +1579,9 @@ def get_user_assignments(request, user_id):
             "quiz_id": a.assignment.quiz.id,
             "category_id": a.assignment.category_id,
             "quiz_name": a.assignment.quiz.name,
+            "unit_name": a.assignment.quiz.unit.name,
+            "category_name": a.assignment.quiz.unit.category.name,
+            "level_name": a.assignment.quiz.unit.category.level.name,
             "status": a.status,
             "assigned_at": a.assigned_at,
         }
