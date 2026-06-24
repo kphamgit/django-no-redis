@@ -22,10 +22,6 @@ from django.views.decorators.csrf import csrf_exempt
 
 import json
 
-# import spacy
-#load spaCy model (globally) once when the server starts to optimize performance
-# nlp = spacy.load("en_core_web_sm")
-
 # Create your views here.
    
 #  VIEWS
@@ -85,6 +81,7 @@ class UserListView(generics.ListAPIView):
     def get_queryset(self):
         # Fetch all categories, prefetching sub_categories for optimization
         return User.objects.all().order_by('id')
+
 
 
 class CategoryListView(generics.ListAPIView):
@@ -1366,40 +1363,6 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
         #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
-"""
-from nlp_utils import analyze_user_text
-
-def nlp_view(request):
-    user_input = request.GET.get('text', 'Hello world')
-    results = analyze_user_text(user_input)
-    return JsonResponse(results)
-
-
-def get_tokens(text):
-    # The 'doc' object holds all the token information
-    doc = nlp(text)
-    # Extract just the text of each token
-    tokens = [token.text for token in doc]
-    return tokens
-
-def nlp_test(request):
-    try:
-        # Load the model
-        
-        # doc = nlp("Checking if spaCy works on Heroku.")
-        text = "Apple is looking at buying U.K. startup for $1 billion"
-        tokens = get_tokens(text)
-        return JsonResponse({
-            "status": "success",
-            "tokens": tokens,
-            "model": "en_core_web_sm"
-        })
-        # tokenize the text
-        # Return a simple extraction
-    except Exception as e:
-        return JsonResponse({"status": "error", "message": str(e)}, status=500)
-"""
-
 @api_view(['GET'])
 def quiz_location(request, quiz_id):
     try:
