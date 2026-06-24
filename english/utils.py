@@ -1,6 +1,83 @@
 import os
 from pystardict import Dictionary
 
+import boto3
+from botocore.config import Config
+import azure.cognitiveservices.speech as speechsdk
+from azure.storage.blob import BlobServiceClient, ContentSettings
+from django.conf import settings
+
+def get_s3_audio_url(file_key):
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME,
+        config=Config(signature_version='s3v4')
+    )
+    return s3_client.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 'Key': file_key},
+        ExpiresIn=3600
+    )
+
+VOICE_MAP = {
+    'en': 'en-US-JennyNeural',
+    'fr': 'fr-FR-DeniseNeural',
+}
+
+def synthesize_azure_audio(text, blob_name=None, language='en', slow=False):
+    """Synthesize text to speech and upload to Azure Blob. Returns blob URL or None on failure."""
+    print(f"Starting audio synthesis for text: '{text}' in language '{language}' with slow={slow}")
+    if blob_name is None:
+        blob_name = f"fr_{text}" if language != 'en' else text
+    if slow:
+        blob_name = f"slow_{blob_name }"
+    voice_name = VOICE_MAP.get(language, 'en-US-JennyNeural')
+    full_blob_name = f"{blob_name}.mp3"
+
+    print(f"Generating audio for text: '{text}' with voice '{voice_name}' and blob name '{full_blob_name}'")
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container="tts-audio", blob=full_blob_name)
+ 
+    if blob_client.exists():
+        return blob_client.url
+
+    speech_config = speechsdk.SpeechConfig(
+        subscription=settings.AZURE_SPEECH_KEY,
+        region=settings.AZURE_SERVICE_REGION
+    )
+    speech_config.speech_synthesis_voice_name = voice_name
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
+    )
+
+    pull_stream = speechsdk.audio.PullAudioOutputStream()
+    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+
+    if slow:
+        ssml = (
+            f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{language}">'
+            f'<voice name="{voice_name}">'
+            f'<prosody rate="slow">{text}</prosody>'
+            f'</voice></speak>'
+        )
+        result = synthesizer.speak_ssml_async(ssml).get()
+    else:
+        result = synthesizer.speak_text_async(text).get()
+
+    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        blob_client.upload_blob(
+            result.audio_data,
+            overwrite=True,
+            content_settings=ContentSettings(content_type='audio/mpeg')
+        )
+        return blob_client.url
+
+    print("Audio synthesis failed for text:", text, "Reason:", result.reason)
+    return None
+
 # 1. Provide the base name (no extension) 
 # Example: if your file is 'eng-vie.ifo', use 'eng-vie'
 DICT_BASE_NAME = "en_vi" 

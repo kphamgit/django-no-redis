@@ -1,3 +1,4 @@
+import io
 from django.shortcuts import render
 
 #from django.shortcuts import render
@@ -22,7 +23,7 @@ import json
 
 from rest_framework.response import Response
 
-from django.http import JsonResponse
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
@@ -80,86 +81,196 @@ def send_notification(request):
 import boto3
 from botocore.config import Config # ⬅️ Import this
 
-import azure.cognitiveservices.speech as speechsdk
-from azure.storage.blob import BlobServiceClient, ContentSettings
 from django.conf import settings
+from english.utils import synthesize_azure_audio, get_s3_audio_url
 
 @csrf_exempt
 def create_azure_audio(request):
-    container_name = "tts-audio"
-    full_blob_name = ""
-    text = ""
     if request.content_type == 'application/json':
-        # print("create_azure_audio received JSON request body:", request.body)
         data = json.loads(request.body)
-        full_blob_name = data.get('blob_name', 'default_name') + ".mp3"
-        # print("Received JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        blob_name = data.get('blob_name', 'default_name')
         text = data.get('text', "What is that?")
     else:
-            # Handle form-data or x-www-form-urlencoded
-        # print("create_azure_audio received non-JSON request, using POST parameters:", request.POST)
-        full_blob_name = request.POST.get('blog_name') + ".mp3"
-        # print("Received non-JSON request for create_azure_audio with full_blob_name:", full_blob_name)
+        blob_name = request.POST.get('blob_name', 'default_name')
         text = request.POST.get('text', "What is that?")
-        # print("Received non-JSON request for create_azure_audio with text:", text)
-        
-    # 1. Initialize Blob Client
-    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
-    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
 
-    # 2. Check if it already exists
-    if blob_client.exists():
-        # Return the existing URL immediately
-        return JsonResponse({'audio_url': blob_client.url})
-
-    # print("AZURE_SPEECH_KEY:", settings.AZURE_SPEECH_KEY)
-    # print("AZURE_SERVICE_REGION:", settings.AZURE_SERVICE_REGION)
-    # 3. If it doesn't exist, proceed with synthesis
-    speech_config = speechsdk.SpeechConfig(
-        subscription=settings.AZURE_SPEECH_KEY, 
-        region=settings.AZURE_SERVICE_REGION
-    )
-    speech_config.set_speech_synthesis_output_format(
-        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
-    )
-    
-    # Synthesize to memory
-    pull_stream = speechsdk.audio.PullAudioOutputStream()
-    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
-    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-    result = synthesizer.speak_text_async(text).get()
-
-    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        # print("Audio synthesis completed successfully for text:", text)
-        # 4. Upload the new audio
-        blob_client.upload_blob(
-            result.audio_data, 
-            overwrite=True,
-            content_settings=ContentSettings(content_type='audio/mpeg')
-        )
-        return JsonResponse({'audio_url': blob_client.url})
-    
+    url = synthesize_azure_audio(text, blob_name, slow=True)
+    if url:
+        return JsonResponse({'audio_url': url})
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
 
-def get_audio_url(file_key):
-    # Initialize the client with the v4 signature config
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        config=Config(signature_version='s3v4') # ⬅️ Add this line
-    )
+# Third-party SDKs
+from elevenlabs.client import ElevenLabs
+from elevenlabs import VoiceSettings
+from azure.storage.blob import BlobServiceClient, ContentSettings
 
-    url = s3_client.generate_presigned_url(
-        'get_object',
-        Params={
-            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
-            'Key': file_key
-        },
-        ExpiresIn=3600
-    )
-    return url
+eleven_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+blob_service_client = BlobServiceClient.from_connection_string(
+    settings.AZURE_STORAGE_CONNECTION_STRING
+)
+CONTAINER_NAME = settings.AZURE_CONTAINER_NAME
+
+# Convenient lookup of available ElevenLabs voices, keyed by name.
+# (The two "Laura" voices are disambiguated as "Laura" and "Laura Narrator".)
+VOICES = {
+    "Roger":          {"voice_id": "CwhRBWXzGAHq8TQ4Fs17", "description": "Laid-Back, Casual, Resonant"},
+    "Sarah":          {"voice_id": "EXAVITQu4vr4xnSDxMaL", "description": "Mature, Reassuring, Confident"},
+    "Laura":          {"voice_id": "FGY2WhTYpPnrIDTdsKH5", "description": "Enthusiast, Quirky Attitude"},
+    "Charlie":        {"voice_id": "IKne3meq5aSn9XLyUdCD", "description": "Deep, Confident, Energetic"},
+    "George":         {"voice_id": "JBFqnCBsd6RMkjVDRZzb", "description": "Warm, Captivating Storyteller"},
+    "Callum":         {"voice_id": "N2lVS1w4EtoT3dr4eOWO", "description": "Husky Trickster"},
+    "River":          {"voice_id": "SAz9YHcvj6GT2YYXdXww", "description": "Relaxed, Neutral, Informative"},
+    "Harry":          {"voice_id": "SOYHLrjzK2X1ezoPC6cr", "description": "Fierce Warrior"},
+    "Liam":           {"voice_id": "TX3LPaxmHKxFdv7VOQHJ", "description": "Energetic, Social Media Creator"},
+    "Alice":          {"voice_id": "Xb7hH8MSUJpSbSDYk0k2", "description": "Clear, Engaging Educator"},
+    "Matilda":        {"voice_id": "XrExE9yKIg1WjnnlVkGX", "description": "Knowledgable, Professional"},
+    "Will":           {"voice_id": "bIHbv24MWmeRgasZH58o", "description": "Relaxed Optimist"},
+    "Jessica":        {"voice_id": "cgSgspJ2msm6clMCkdW9", "description": "Playful, Bright, Warm"},
+    "Eric":           {"voice_id": "cjVigY5qzO86Huf0OWal", "description": "Smooth, Trustworthy"},
+    "Bella":          {"voice_id": "hpp4J3VqNfWAUOO0d1Us", "description": "Professional, Bright, Warm"},
+    "Chris":          {"voice_id": "iP95p4xoKVk53GoZ742B", "description": "Charming, Down-to-Earth"},
+    "Brian":          {"voice_id": "nPczCjzI2devNBz1zQrb", "description": "Deep, Resonant and Comforting"},
+    "Daniel":         {"voice_id": "onwK4e9ZLuTAKqWW03F9", "description": "Steady Broadcaster"},
+    "Lily":           {"voice_id": "pFZP5JQG7iQjIQuC4Bku", "description": "Velvety Actress"},
+    "Adam":           {"voice_id": "pNInz6obpgDQGcFmaJgB", "description": "Dominant, Firm"},
+    "Bill":           {"voice_id": "pqHfZKP75CvOlQylNhV4", "description": "Wise, Mature, Balanced"},
+    "Hannah":         {"voice_id": "ZSNL4hPqCnqoMPaI4jGX", "description": "All-American, bright, natural"},
+    "Laura Narrator": {"voice_id": "GZ4PpFJV8ikEGUtBrjK7", "description": "A top narration voice"},
+    "Rachel":         {"voice_id": "K7W7zLWeGoxU9YqWoB7A", "description": "Social Media Narrator"},
+}
+
+@csrf_exempt
+# @require_POST
+@api_view(["POST"])
+def generate_eleven_lab_audio_and_save_to_azure(request):
+    """
+    Generates ElevenLabs TTS and directly uploads it to Azure Blob Storage
+    without touching the local disk.
+    
+Available voice: Roger - Laid-Back, Casual, Resonant id: CwhRBWXzGAHq8TQ4Fs17
+Available voice: Sarah - Mature, Reassuring, Confident id: EXAVITQu4vr4xnSDxMaL
+Available voice: Laura - Enthusiast, Quirky Attitude id: FGY2WhTYpPnrIDTdsKH5
+Available voice: Charlie - Deep, Confident, Energetic id: IKne3meq5aSn9XLyUdCD
+Available voice: George - Warm, Captivating Storyteller id: JBFqnCBsd6RMkjVDRZzb
+Available voice: Callum - Husky Trickster id: N2lVS1w4EtoT3dr4eOWO
+Available voice: River - Relaxed, Neutral, Informative id: SAz9YHcvj6GT2YYXdXww
+Available voice: Harry - Fierce Warrior id: SOYHLrjzK2X1ezoPC6cr
+Available voice: Liam - Energetic, Social Media Creator id: TX3LPaxmHKxFdv7VOQHJ
+Available voice: Alice - Clear, Engaging Educator id: Xb7hH8MSUJpSbSDYk0k2
+Available voice: Matilda - Knowledgable, Professional id: XrExE9yKIg1WjnnlVkGX
+Available voice: Will - Relaxed Optimist id: bIHbv24MWmeRgasZH58o
+Available voice: Jessica - Playful, Bright, Warm id: cgSgspJ2msm6clMCkdW9
+Available voice: Eric - Smooth, Trustworthy id: cjVigY5qzO86Huf0OWal
+Available voice: Bella - Professional, Bright, Warm id: hpp4J3VqNfWAUOO0d1Us
+Available voice: Chris - Charming, Down-to-Earth id: iP95p4xoKVk53GoZ742B
+Available voice: Brian - Deep, Resonant and Comforting id: nPczCjzI2devNBz1zQrb
+Available voice: Daniel - Steady Broadcaster id: onwK4e9ZLuTAKqWW03F9
+Available voice: Lily - Velvety Actress id: pFZP5JQG7iQjIQuC4Bku
+Available voice: Adam - Dominant, Firm id: pNInz6obpgDQGcFmaJgB
+Available voice: Bill - Wise, Mature, Balanced id: pqHfZKP75CvOlQylNhV4
+Available voice: Hannah - All-American, bright, natural id: ZSNL4hPqCnqoMPaI4jGX
+Available voice: Laura - a top narration voice id: GZ4PpFJV8ikEGUtBrjK7
+Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
+        """
+    
+    #print("APP KEY tail:", settings.ELEVENLABS_API_KEY[-4:])
+    
+    
+    # voices = eleven_client.voices.get_all()
+    #for v in voices.voices:
+    #    print(f"Available voice: {v.name} id: {v.voice_id}")
+        
+    #ids = {v.voice_id: v.name for v in eleven_client.voices.get_all().voices}
+    # print("ZSNL4hPqCnqoMPaI4jGX" in ids)  # True = added to your account; False = library-only
+
+    
+    print("generate_eleven_lab_audio_and_save_to_azure called with request.body:", request.body)
+    data = request.data
+    text_to_speak = data.get("text_to_speak") or data.get("text", "")
+    base_name = data.get("blob_name", "default_name")
+    # replace spaces in base_name with underscores
+    base_name = base_name.replace(" ", "_")
+    request_speed = data.get("speed", "normal")
+    if request_speed == "normal":
+        speed = 1.0
+    elif request_speed == "slow":
+        speed = 0.7
+    else:
+        speed = 1.0
+
+    # speed = float(data.get("speed", "normal"))  # 0.7 (slow), normal: 1.0
+
+    # Pick the voice by name from the request body, defaulting to "River".
+    voice_name = data.get("voice_name", "River")
+    voice = VOICES.get(voice_name)
+    if voice is None:
+        return HttpResponseBadRequest(
+            f"Unknown voice '{voice_name}'. Available voices: {', '.join(VOICES)}."
+        )
+
+    print("***** Text to speak:", text_to_speak)
+    if not text_to_speak:
+        return HttpResponseBadRequest("Missing 'text_to_speak' in request body.")
+
+    try:
+        # 1. Fetch the TTS data iterator from ElevenLabs
+        # print("Generating audio from ElevenLabs for text:")
+        audio_iterator = eleven_client.text_to_speech.convert(
+            text=text_to_speak,
+            voice_id=voice["voice_id"],  # selected via the "voice" request field (default: River)
+            model_id="eleven_multilingual_v2",     # High-quality model
+            output_format="mp3_44100_128",
+            voice_settings=VoiceSettings(speed=speed),
+        )
+    
+        # 2. Compile the byte chunks entirely in memory
+        print("Compiling audio chunks into memory buffer...")
+        audio_buffer = io.BytesIO()
+        for chunk in audio_iterator:
+            if chunk:
+                audio_buffer.write(chunk)
+        
+        # Rewind the pointer to the beginning of the stream for Azure to read
+        audio_buffer.seek(0)
+ 
+        # 3. Prepare Azure Blob Target Details
+        # unique_filename = f"tts_{uuid.uuid4()}.mp3"
+        # base_name = text_to_speak.replace(" ", "_")
+        # print("Request speed for TTS:", request_speed)
+        #base_name = "my_test_audio"  # You can customize this based on your needs
+        unique_filename = f"slow_{base_name}.mp3" if request_speed == "slow" else f"{base_name}.mp3"
+        # print("Generated unique filename for Azure Blob:", unique_filename)
+        blob_client = blob_service_client.get_blob_client(
+            container=CONTAINER_NAME + '/elevenlabs' + f"/{voice_name.lower()}",  # Optional subfolder in the container
+            blob=unique_filename
+        )
+        
+        # Force Content-Type to audio/mpeg so browsers play it instead of downloading it
+        content_settings = ContentSettings(content_type="audio/mpeg")
+
+        # 4. Stream upload directly to Azure
+        print("Uploading audio to Azure Blob Storage...")
+        blob_client.upload_blob(
+            audio_buffer, 
+            overwrite=True, 
+            content_settings=content_settings
+        )
+
+        # 5. Extract the file URL
+        # Note: Assumes your Azure Container access level is set to 'Blob' or 'Container' (Public Read)
+        azure_blob_url = blob_client.url
+        
+        print("Audio successfully uploaded to Azure Blob Storage. URL:", azure_blob_url)
+
+        return JsonResponse({
+            "status": "success", 
+            "filename": unique_filename,
+            "audio_url": azure_blob_url
+        })
+        
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)
+
 
 @csrf_exempt
 def upload_audio(request):
@@ -189,7 +300,7 @@ def upload_audio(request):
         # student_3_3_2026_10-18-44_PM.webm
         # split audio_file.name by "_" and get the first part as user name
         user_name = audio_file.name.split("_")[0]
-        presigned_url = get_audio_url("audios/recordings/" + audio_file.name)
+        presigned_url = get_s3_audio_url("audios/recordings/" + audio_file.name)
         settings.R_CONN.publish('notifications', json.dumps({
             "message_type": "recording_received",
             "content": presigned_url,

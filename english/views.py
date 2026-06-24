@@ -1,24 +1,21 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent, Example
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, CardSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
     LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
-from .serializers import UserSerializer, SenseSerializer
+from .serializers import UserSerializer, SenseSerializer, ExampleSerializer
 from django.contrib.auth.models import User
 from rest_framework import generics
 from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from .utils import read_viet_dict
-from .utils import scrape_longman_url
+from .utils import read_viet_dict, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url
 
 import boto3
 from botocore.config import Config # ⬅️ Import this
 
-import azure.cognitiveservices.speech as speechsdk
-from azure.storage.blob import BlobServiceClient, ContentSettings
 from django.conf import settings
 
 from django.views.decorators.csrf import csrf_exempt
@@ -51,6 +48,27 @@ class CategoryCreateView(generics.CreateAPIView):
             )
         else:
             print(serializer.errors)
+
+class ExampleCreateView(generics.CreateAPIView):
+    #print("********* CategoryCreateView called")
+    """
+    sense_id: senseId, sentence 
+    
+    """
+    serializer_class = ExampleSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = Example.objects.all()  # Add this line
+    #print("********* CategoryCreateView called")
+    def perform_create(self, serializer):
+        print("********* ExampleCreateView perform_create, request data:", self.request.data)
+        if serializer.is_valid():
+            serializer.save(
+                sense_id=self.request.data.get('sense_id'),
+                sentence=self.request.data.get('sentence')
+            )
+        else:
+            print(serializer.errors)
+
 
 class LevelListView(generics.ListAPIView):
     serializer_class = LevelSerializer  # Use the serializer with sub_categories by default
@@ -191,54 +209,6 @@ class QuestionRangeListView(generics.GenericAPIView):
 
         
 
-def create_azure_audio(text, language='en'):
-    VOICE_MAP = {
-        'en': 'en-US-JennyNeural',
-        'fr': 'fr-FR-DeniseNeural',
-    }
-    voice_name = VOICE_MAP.get(language, 'en-US-JennyNeural')  # Ensure 'language' is passed or defaults to 'en'
-    container_name = "tts-audio"
-    if language == 'en':
-        full_blob_name = f"{text}.mp3"
-    else:  # french
-        full_blob_name = f"fr_{text}.mp3"
-   
-    # 1. Initialize Blob Client
-    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
-    blob_client = blob_service_client.get_blob_client(container=container_name, blob=full_blob_name)
-
-    # 2. Check if it already exists
-    if blob_client.exists():
-        # Return the existing URL immediately
-        # print(f"Audio already exists for text: {text}, skipping synthesis.")
-        return 
-
-    # 3. If it doesn't exist, proceed with synthesis
-    speech_config = speechsdk.SpeechConfig(
-        subscription=settings.AZURE_SPEECH_KEY, 
-        region=settings.AZURE_SERVICE_REGION
-    )
-    speech_config.speech_synthesis_voice_name = voice_name
-    speech_config.set_speech_synthesis_output_format(
-        speechsdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3
-    )
-    
-    # Synthesize to memory
-    pull_stream = speechsdk.audio.PullAudioOutputStream()
-    audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
-    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-    result = synthesizer.speak_text_async(text).get()
-
-    if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-        #print("Audio synthesis completed successfully for text:", text)
-        # 4. Upload the new audio
-        blob_client.upload_blob(
-            result.audio_data, 
-            overwrite=True,
-            content_settings=ContentSettings(content_type='audio/mpeg')
-        )
-    else:
-        print("Audio synthesis failed for text:", text, " Reason:", result.reason)
       
 class QuestionCreateView(generics.ListCreateAPIView):
     serializer_class = QuestionSerializer
@@ -270,7 +240,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
                     #print("Scrambled words:", scrambled_words)
                     for word in scrambled_words:
                         # print(f"**************** Creating Azure audio for word: {word}")
-                        create_azure_audio(word, language=self.request.data.get('content_language', 'en'))
+                        synthesize_azure_audio(word, language=self.request.data.get('content_language', 'en'))
                     
             if self.request.data.get('format') == '2':   # button_select or button_select_cloze
                 if (self.request.data.get('content_language') in ['en', 'fr']):
@@ -280,7 +250,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
                         #print("Cloze options:", cloze_options_list)
                         for option in cloze_options_list:
                             # print(f"Creating Azure audio for cloze option: {option}")
-                            create_azure_audio(option, language=self.request.data.get('content_language', 'en'))
+                            synthesize_azure_audio(option, language=self.request.data.get('content_language', 'en'))
                         
         else:
             print(serializer.errors)
@@ -487,7 +457,7 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
                     #print("Scrambled words:", scrambled_words)
                     for word in scrambled_words:
                         # print(f"**************** QuestionEditView Creating Azure audio for word: {word}")
-                        create_azure_audio(word, language=self.request.data.get('content_language', 'en'))
+                        synthesize_azure_audio(word, language=self.request.data.get('content_language', 'en'))
                     
             if self.request.data.get('format') == '2':   # button_select or button_select_cloze
                 if (self.request.data.get('content_language') in ['en', 'fr']):
@@ -497,7 +467,7 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
                         #print("Cloze options:", cloze_options_list)
                         for option in cloze_options_list:
                             # print(f"QuestionEditView Creating Azure audio for cloze option: {option}")
-                            create_azure_audio(option, language=self.request.data.get('content_language', 'en'))
+                            synthesize_azure_audio(option, language=self.request.data.get('content_language', 'en'))
             
 
         else:
@@ -929,28 +899,8 @@ def assign_quiz(request, pk):
         }, status=404)
    
     
-def get_audio_url(file_key):
-    # Initialize the client with the v4 signature config
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        region_name=settings.AWS_S3_REGION_NAME,
-        config=Config(signature_version='s3v4') # ⬅️ Add this line
-    )
-
-    url = s3_client.generate_presigned_url(
-        'get_object',
-        Params={
-            'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
-            'Key': file_key
-        },
-        ExpiresIn=3600
-    )
-    return url
-    
 @csrf_exempt
-def get_recordings(request):
+def get_s3_recordings(request):
     # List objects in the S3 bucket under the "audios/recordings/" prefix
     s3_client = boto3.client(
         's3',
@@ -966,7 +916,7 @@ def get_recordings(request):
     for obj in response.get('Contents', []):
         file_key = obj['Key']
         #print("Found audio file in S3 with key:", file_key)
-        url = get_audio_url(file_key)
+        url = get_s3_audio_url(file_key)
         recordings.append({
             'file_key': file_key,
             'audio_url': url

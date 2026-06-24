@@ -23,6 +23,7 @@ urlpatterns = [
     #Amazon S3
     path("upload-audio/", views.upload_audio, name="upload-audio"),
    
+    path("create_eleven_lab_audio/", views.generate_eleven_lab_audio_and_save_to_azure, name='generate_save_eleven_lab_audio_to_azure'),
   
     #Microsoft Azure Text-to-Speech
     path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),
