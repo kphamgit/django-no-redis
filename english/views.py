@@ -7,6 +7,7 @@ from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, Ca
     LevelWithCategoriesSerializer, UnitWithQuizzesSerializer
 from .serializers import UserSerializer, SenseSerializer, ExampleSerializer
 from django.contrib.auth.models import User
+from django.db.models import F
 from rest_framework import generics
 from rest_framework.decorators import api_view
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -216,8 +217,19 @@ class QuestionCreateView(generics.ListCreateAPIView):
         if serializer.is_valid():
             #serializer.save()
             #kpham: NO NEED for explicit fields since all are included in serializer
-            print(" content_language in request data:", self.request.data.get('content_language', 'en'))   
-            serializer.save( 
+            print(" content_language in request data:", self.request.data.get('content_language', 'en'))
+            # "Insert after": make room for the new question by shifting every question in
+            # this quiz whose number is >= the requested number up by 1, so there are no
+            # duplicate question_numbers. (For an append, the requested number is beyond all
+            # existing questions, so nothing is shifted.)
+            quiz_id = self.request.data.get('quiz_id')
+            question_number = self.request.data.get('question_number')
+            if quiz_id is not None and question_number is not None:
+                Question.objects.filter(
+                    quiz_id=quiz_id,
+                    question_number__gte=int(question_number),
+                ).update(question_number=F('question_number') + 1)
+            serializer.save(
                 question_number=self.request.data.get('question_number'),
                 format=self.request.data.get('format'),
                 content=self.request.data.get('content'),
@@ -411,6 +423,12 @@ class QuestionCloneView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         original_question = self.get_queryset().first()
         if original_question:
+            # "Insert after": shift every question in this quiz whose number is greater than
+            # the original up by 1, so the clone can take original_number + 1 with no duplicates.
+            Question.objects.filter(
+                quiz_id=original_question.quiz_id,
+                question_number__gt=original_question.question_number,
+            ).update(question_number=F('question_number') + 1)
             cloned_question = Question.objects.create(
                 quiz_id=original_question.quiz_id,
                 question_number=original_question.question_number + 1,
@@ -422,6 +440,7 @@ class QuestionCloneView(generics.CreateAPIView):
                 audio_str=original_question.audio_str,
                 button_cloze_options=original_question.button_cloze_options,
                 video_segment_id=original_question.video_segment_id,
+                timeout = original_question.timeout,
             )
             print("Question cloned successfully, cloned question ID:", cloned_question.id)
             return Response(QuestionSerializer(cloned_question).data, status=201)
@@ -566,8 +585,8 @@ class VideoSegmentRetrieveView(generics.RetrieveAPIView):
         return queryset
     
 class VideoSegmentRetrieveByNumberView(generics.RetrieveAPIView):
-    #serializer_class = VideoSegmentSerializer
-    serializer_class = VideoSegmentIdSerializer   # only return id field
+    serializer_class = VideoSegmentSerializer
+    # serializer_class = VideoSegmentIdSerializer   # only return id field
     permission_classes = [IsAuthenticated]
     lookup_field = 'segment_number'
 
@@ -577,6 +596,9 @@ class VideoSegmentRetrieveByNumberView(generics.RetrieveAPIView):
         temp_queryset = VideoSegment.objects.filter(quiz_id=quiz)
         # then we will use lookup_field to filter by segment_number
         queryset = temp_queryset.filter(segment_number=self.kwargs.get('segment_number'))
+        if settings.DEBUG:
+            print("VideoSegmentRetrieveByNumberView queryset:", list(queryset.values("id", "segment_number", "quiz_id")))
+            print("VideoSegmentRetrieveByNumberView SQL:", queryset.query)
         #segment_number = self.kwargs.get('segment_number')
         #("VideoSegmentRetrieveView ****** get_queryset, segment_number:", segment_number)
         #queryset = VideoSegment.objects.filter(segment_number=segment_number)
@@ -833,9 +855,24 @@ class ItemDeleteView(generics.DestroyAPIView):
             
         
         # print("ItemDeleteView get_queryset, queryset:", queryset)
-        
+
         return queryset
-    
+
+    def perform_destroy(self, instance):
+        data_type = self.request.query_params.get('data_type', 'question').lower()
+        if data_type == 'question':
+            # Capture before deleting, then close the gap: shift every later question in this
+            # quiz down by 1 so question numbers stay sequential (mirrors the insert/clone shift).
+            quiz_id = instance.quiz_id
+            deleted_number = instance.question_number
+            instance.delete()
+            Question.objects.filter(
+                quiz_id=quiz_id,
+                question_number__gt=deleted_number,
+            ).update(question_number=F('question_number') - 1)
+        else:
+            instance.delete()
+
 @api_view(["POST"])
 def move_quiz(request, pk):
     # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)

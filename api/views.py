@@ -533,9 +533,58 @@ def create_video_quiz_attempt(request):
 def get_video_segment_questions(request, pk):
     # pk is the video_segment_id from the URL
     questions = Question.objects.filter(video_segment_id=pk).order_by('question_number')
-    return Response({
-        "questions": QuestionSerializer(questions, many=True).data
-    })
+
+    # If a quiz_attempt_id is supplied, mark each question as finished/unfinished based on
+    # whether it already has a completed QuestionAttempt for that quiz attempt. This lets the
+    # client resume correctly after a reload instead of re-asking already-answered questions.
+    quiz_attempt_id = request.query_params.get('quiz_attempt_id')
+    finished_question_ids = set()
+    if quiz_attempt_id:
+        finished_question_ids = set(
+            QuestionAttempt.objects.filter(
+                quiz_attempt_id=quiz_attempt_id,
+                completed=True,
+                question__video_segment_id=pk,
+            ).values_list('question_id', flat=True)
+        )
+
+    data = QuestionSerializer(questions, many=True).data
+    for q in data:
+        q['finished'] = q['id'] in finished_question_ids
+
+    return Response({"questions": data})
+
+
+@api_view(["GET"])
+def get_next_segment_question(request, pk):
+    """Return the next unfinished question in a video segment for a quiz attempt, or null.
+
+    pk is the video_segment_id. A question is "finished" if it has a completed
+    QuestionAttempt for the given quiz attempt. The server owns this progress state, so the
+    client can simply ask "what's next?" instead of tracking it locally.
+    """
+    quiz_attempt_id = request.query_params.get('quiz_attempt_id')
+    finished_question_ids = set()
+    if quiz_attempt_id:
+        finished_question_ids = set(
+            QuestionAttempt.objects.filter(
+                quiz_attempt_id=quiz_attempt_id,
+                completed=True,
+                question__video_segment_id=pk,
+            ).values_list('question_id', flat=True)
+        )
+
+    next_question = (
+        Question.objects
+        .filter(video_segment_id=pk)
+        .exclude(id__in=finished_question_ids)
+        .order_by('question_number')
+        .first()
+    )
+
+    if next_question:
+        return Response({"next_question": QuestionSerializer(next_question).data})
+    return Response({"next_question": None})
 
               
 """
@@ -1344,7 +1393,7 @@ def create_next_question_attempt(request, pk):
     # body contain current question number
     try:
          # retrieve current question number from request body
-        current_question_number = request.data.get('current_question_number', None)
+        current_question_number = request.data.get('current_question_number', 0)
         
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         review_state = quiz_attempt.review_state  # get the review_state of the quiz attempt
@@ -1352,6 +1401,7 @@ def create_next_question_attempt(request, pk):
         # retrieve quiz for quiz_attempt.quiz_id
         quiz = Quiz.objects.get(id=quiz_attempt.quiz_id)
         # next_question_number is current_question_number + 1
+     
         next_question_number = current_question_number + 1
         # retrieve the next question using quiz_id and next_question_number
         next_question = Question.objects.filter(quiz_id=quiz.id, question_number=next_question_number).first()
@@ -1491,9 +1541,18 @@ def process_video_question_attempt(request, pk):
        
         question_attempt = QuestionAttempt.objects.get(id=pk)
         quiz_attempt = question_attempt.quiz_attempt
-        
+
+        # Persist this question attempt as completed so the server is the source of truth
+        # for progress (lets the client resume correctly after a reload).
+        question_attempt.error_flag = error_flag
+        question_attempt.score = score
+        question_attempt.answer = request.data.get('user_answer', '')
+        question_attempt.completed = True
+        question_attempt.save()
+
         # calculate score for quiz_attempt
         quiz_attempt.score = quiz_attempt.score + score
+        quiz_attempt.save()
         
         # get next question
         next_question_number = question_attempt.question.question_number + 1
@@ -1626,6 +1685,22 @@ def process_question_attempt(request, pk):
         return Response({
             "error": "Question attempt not found."
         }, status=404)
+
+
+@api_view(["GET"])
+def get_incorrect_count(request, pk):
+    """Read-only count of not-yet-corrected wrong question attempts for a quiz attempt.
+
+    Used to decide whether to offer the "redo wrong questions" prompt. Unlike
+    get_next_incorrect_question_attempt, this has no side effects.
+    """
+    count = QuestionAttempt.objects.filter(
+        quiz_attempt_id=pk,
+        error_flag=True,
+        corrected=False,
+        stale=False,
+    ).count()
+    return Response({"count": count})
 
 
 @api_view(["POST"])

@@ -32,6 +32,7 @@ urlpatterns = [
     path("video_quiz_attempts/create/", views.create_video_quiz_attempt),     # pk is quiz_id
     
     path("video_segments/<int:pk>/get_questions/", views.get_video_segment_questions),     # pk is quiz_id
+    path("video_segments/<int:pk>/next_question/", views.get_next_segment_question, name="next-segment-question"),  # pk is video_segment_id
     
     # path("/<int:pk>/questions/<int:starting_question_number>/<int:number_of_questions>/", views.QuestionRangeListView.as_view(), name="question-range-list"),
     
@@ -39,13 +40,14 @@ urlpatterns = [
     path("quiz_attempts/get_or_create/<int:pk>/", views.get_or_create_quiz_attempt),     # pk is quiz_id
     path("quiz_attempts/get_or_create_react_native/<int:pk>/", views.get_or_create_quiz_attempt_react_native),   
     # path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
-    # path("quiz_attempts/<int:pk>/create_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/create_question_attempt/", views.create_question_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/create_next_question_attempt/", views.create_next_question_attempt), 
     path("quiz_attempts/<int:pk>/reset/", views.reset_quiz_attempt),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/mark_completed/", views.mark_quiz_attempt_completed),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/set_review_mode/", views.set_review_mode),  # pk is quiz_attempt_id
     # api.get(`/api/quiz_attempts/${quizAttempt?.id}/incorrect_questions/`) //replenish_incorrect_questions
     path("quiz_attempts/<int:pk>/get_incorrect_question_attempt/", views.get_next_incorrect_question_attempt),  # pk is quiz_attempt_id
+    path("quiz_attempts/<int:pk>/incorrect_count/", views.get_incorrect_count, name="incorrect-count"),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/incorrect_questions/", views.get_incorrect_questions),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/replenish_incorrect_questions/", views.replenish_incorrect_questions),  # pk is quiz_attempt_id
     path("quiz_attempts/<int:pk>/replenish_incorrect_questions_react_native/", views.replenish_incorrect_questions_react_native),  # pk is quiz_attempt_id
