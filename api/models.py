@@ -64,7 +64,7 @@ class Question(models.Model):
     content = models.TextField(max_length=1000, default="")
     content_language = models.CharField(max_length=10, blank=True, null=True, default="en")  # e.g., "en" for English, "vi" for Vietnamese
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
-    video_segment = models.ForeignKey(VideoSegment, on_delete=models.DO_NOTHING, related_name="video_segment_questions", blank=True, null=True)
+    video_segment = models.ForeignKey(VideoSegment, on_delete=models.CASCADE, related_name="video_segment_questions", blank=True, null=True)
     answer_key = models.TextField(max_length=500, default="")
     score = models.IntegerField(default=0, null=True)
     timeout = models.IntegerField(default=0, null=True)  # in miliseconds
