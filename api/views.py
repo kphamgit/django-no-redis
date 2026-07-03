@@ -500,11 +500,78 @@ def get_question_by_number_live(request, quiz_id, question_number):
     
 @api_view(["POST"])
 def create_video_quiz_attempt(request):
-        """
-            Create a QuizAttempt for the given quiz and user (used only in TakeVideoQuiz)
-        """
+       
         quiz_id = request.data.get('quiz_id', None)
-        number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
+        # number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 1)
+        print("create_video_quiz_attempt called with quiz_id:", quiz_id, "user_name:", request.data.get('user_name'))
+        """
+        quiz_attempt  = QuizAttempt.objects.create(
+            user_name=request.data['user_name'],
+            quiz_id=quiz_id,
+            completion_status="uncompleted",
+            
+        )
+        """
+        quiz_attempt, created = QuizAttempt.objects.get_or_create(
+            user_name=request.data['user_name'],
+            quiz_id=quiz_id,
+            completion_status="uncompleted",
+        )
+        
+        #print("***** New QuizAttempt created.")
+        # print("***** New QuizAttempt created for quiz_id", pk, "and user_name", request.data['user_name'])
+        serializer = QuizAttemptSerializer(quiz_attempt)
+    
+        # get first question of the quiz to preload, if any
+        if created:
+            first_question = Question.objects.filter(quiz_id=quiz_id).order_by('question_number').first()
+            if first_question:
+                # create question attempt for the first question of the quiz
+                first_question_attempt = QuestionAttempt.objects.create(
+                    quiz_attempt=quiz_attempt,
+                    question=first_question,
+                    completed=False,
+                )
+                
+                return Response({
+                    "quiz_attempt": serializer.data,
+                    "created": True,
+                    "question": QuestionSerializer(first_question).data if first_question else None,
+                    "question_attempt_id": first_question_attempt.id if first_question_attempt else None,
+                    })
+        else:   # reuse the existing quiz attempt, and get the last question attempt if any
+            last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()
+            print(" Last question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")
+            if last_question_attempt:
+                # check if last question attempt is completed
+                if not last_question_attempt.completed:
+                    print(" ^^^^^ Last question attempt is not completed, returning it.")
+                    return Response({
+                        "quiz_attempt": serializer.data,
+                        "created": created,
+                        "question": QuestionSerializer(last_question_attempt.question).data if last_question_attempt.question else None,
+                        "question_attempt_id": last_question_attempt.id if last_question_attempt else None,
+                        })
+                else: # last question attempt is completed, get the next question in the quiz if any
+                    next_question = Question.objects.filter(quiz_id=quiz_id, question_number__gt=last_question_attempt.question.question_number).order_by('question_number').first()
+                    if next_question:
+                        next_question_attempt = QuestionAttempt.objects.create(
+                            quiz_attempt=quiz_attempt,
+                            question=next_question,
+                            completed=False,
+                        )
+                        return Response({
+                            "quiz_attempt": serializer.data,
+                            "created": created,
+                            "question": QuestionSerializer(next_question).data if next_question else None,
+                            "question_attempt_id": next_question_attempt.id if next_question_attempt else None,
+                            })
+          
+@api_view(["POST"])
+def create_video_quiz_attempt_old(request):
+       
+        quiz_id = request.data.get('quiz_id', None)
+        number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 1)
         
         quiz_attempt  = QuizAttempt.objects.create(
             user_name=request.data['user_name'],
@@ -1113,18 +1180,22 @@ def mark_quiz_attempt_completed(request, pk):
         quiz_id = quiz_attempt.quiz_id
         # find the Assignment with the same quiz id
         assignment = Assignment.objects.filter(quiz_id=quiz_id).first()
-        
+
         user_name = quiz_attempt.user_name
         # find user id for this user name
-        user_id = User.objects.filter(username=user_name).first().id
-        
-        # Then find the assignmentStudent with the same assignment id and user id
-        assignment_student = AssignmentStudent.objects.filter(assignment_id=assignment.id, user_id=user_id).first()
-        # print("Found AssignmentStudent:", assignment_student)
-        if assignment_student:
-            # mark the assignment student  status to completed as well
-            assignment_student.status = "completed"
-            assignment_student.save()
+        user = User.objects.filter(username=user_name).first()
+
+        # This quiz may not belong to an assignment, and the attempt's user_name
+        # may not match a real User (e.g. a guest). Only sync the assignment
+        # submission status when both exist.
+        if assignment and user:
+            # Then find the assignmentStudent with the same assignment id and user id
+            assignment_student = AssignmentStudent.objects.filter(assignment_id=assignment.id, user_id=user.id).first()
+            # print("Found AssignmentStudent:", assignment_student)
+            if assignment_student:
+                # mark the assignment student  status to completed as well
+                assignment_student.status = "completed"
+                assignment_student.save()
             
         return Response({
             "message": "Quiz attempt has been marked as completed.",
@@ -1376,6 +1447,7 @@ def create_question_attempt(request, pk):
  
         # question_serializer = QuestionSerializer(question)
         return Response({
+            "question": QuestionSerializer(question).data,
             "quiz_attempt_id": pk,
             "question_attempt_id": question_attempt.id,
             "question_attempt_number": question_attempt.question_attempt_number,

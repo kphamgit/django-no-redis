@@ -37,19 +37,19 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "username",]
         
 class VideoSegmentSerializer(serializers.ModelSerializer):
-    # define a custom field for question_numbers (there's no field with this name in the model)
-    question_numbers = serializers.SerializerMethodField()
+    # define a custom field for question_ids (there's no field with this name in the model)
+    question_ids = serializers.SerializerMethodField()
     class Meta:
         model = VideoSegment
-        fields = ["id", "quiz_id", "segment_number", "start_time", "end_time", "question_numbers"]
-        
-    def get_question_numbers(self, obj):     # will be automatically called to get the value for question_numbers
-        # Generate the question_numbers string
-        question_numbers = ', '.join(
-            #str(question.question_number) for question in obj.video_segment_questions.all()
-            str(question.id) for question in obj.video_segment_questions.all()
+        fields = ["id", "quiz_id", "segment_number", "start_time", "end_time", "question_ids"]
+
+    def get_question_ids(self, obj):     # will be automatically called to get the value for question_ids
+        # Generate the question_ids string
+        question_ids = ', '.join(
+            str(question.id)
+            for question in obj.video_segment_questions.order_by('question_number')
         )
-        return question_numbers
+        return question_ids
         
 class QuizSerializer(serializers.ModelSerializer):
     video_segments = VideoSegmentSerializer(many=True, read_only=True)  # Use the nested serializer
