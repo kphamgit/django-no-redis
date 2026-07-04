@@ -503,15 +503,7 @@ def create_video_quiz_attempt(request):
        
         quiz_id = request.data.get('quiz_id', None)
         # number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 1)
-        print("create_video_quiz_attempt called with quiz_id:", quiz_id, "user_name:", request.data.get('user_name'))
-        """
-        quiz_attempt  = QuizAttempt.objects.create(
-            user_name=request.data['user_name'],
-            quiz_id=quiz_id,
-            completion_status="uncompleted",
-            
-        )
-        """
+        # print("create_video_quiz_attempt called with quiz_id:", quiz_id, "user_name:", request.data.get('user_name'))
         quiz_attempt, created = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
             quiz_id=quiz_id,
@@ -524,6 +516,7 @@ def create_video_quiz_attempt(request):
     
         # get first question of the quiz to preload, if any
         if created:
+            #print("***** New QuizAttempt created for quiz_id", quiz_id, "and user_name", request.data['user_name'])
             first_question = Question.objects.filter(quiz_id=quiz_id).order_by('question_number').first()
             if first_question:
                 # create question attempt for the first question of the quiz
@@ -540,12 +533,13 @@ def create_video_quiz_attempt(request):
                     "question_attempt_id": first_question_attempt.id if first_question_attempt else None,
                     })
         else:   # reuse the existing quiz attempt, and get the last question attempt if any
+            #print("***** Reusing existing QuizAttempt for quiz_id", quiz_id, "and user_name", request.data['user_name'])
             last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()
-            print(" Last question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")
+            # print(" Last question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")
             if last_question_attempt:
                 # check if last question attempt is completed
                 if not last_question_attempt.completed:
-                    print(" ^^^^^ Last question attempt is not completed, returning it.")
+                    # print(" ^^^^^ Last question attempt is not completed, returning it.")
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": created,
@@ -1212,7 +1206,7 @@ def set_review_mode(request, pk):
         Mark the quiz attempt completed by setting the quiz attempt status to completed.
     """
     try:
-        print("***** SETTING REVIEW MODE FOR QuizAttempt id:", pk)
+        # print("***** SETTING REVIEW MODE FOR QuizAttempt id:", pk)
         quiz_attempt = QuizAttempt.objects.get(id=pk)
        
         quiz_attempt.review_state = True
