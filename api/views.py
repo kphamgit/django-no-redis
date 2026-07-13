@@ -1805,13 +1805,14 @@ def get_pending_assignments(request):
     pending = AssignmentStudent.objects.filter(
         user=request.user,
         status="pending"
-    ).select_related('assignment__quiz')
+    ).select_related('assignment__quiz__unit')
     data = [
         {
             "assignment_id": a.assignment.id,
             "quiz_id": a.assignment.quiz.id,
             "category_id": a.assignment.category_id,
             "quiz_name": a.assignment.quiz.name,
+            "unit_name": a.assignment.quiz.unit.name,
             "assigned_at": a.assigned_at,
         }
         for a in pending
