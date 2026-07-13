@@ -1059,10 +1059,10 @@ def start_live_quiz(request, pk):
         settings.R_CONN.set('live_quiz_id', pk)
         # settings.R call('JSON.SET', `user:${user_name}`, '$', JSON.stringify(newUser));
         # settings.R_CONN.call('JSON.SET', "user:student1", '$', json.dumps(pk))
-        
+        # print("Live quiz started with id:", pk, " and name:", quiz.name)
         return Response({
             "message": "Live quiz started and notification sent.",
-            "quiz_id": pk,
+            "quiz": QuizDetailSerializer(quiz).data,
             "quiz_name": quiz.name,
         })
         
@@ -1939,6 +1939,16 @@ def get_all_due_cards(request):
     now = timezone.now()
     reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
     all_cards = list(Card.objects.order_by('id'))
+    
+    # print all cards for this user for debug
+    if settings.DEBUG:
+        print(f"===== get_all_due_cards: user={request.user} has {len(all_cards)} cards, {len(reviews)} review rows =====")
+        for card in all_cards:
+            review = reviews.get(card.id)
+            print(
+                f"  card id={card.id} quiz={card.quiz_id} text={card.text!r} "
+                f"next_review_at={review.next_review_at if review else 'NO REVIEW (never seen)'}"
+            )
 
     # Per-quiz distractor pools so options stay topically plausible.
     pools = {}
