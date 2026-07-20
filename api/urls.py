@@ -9,6 +9,14 @@ from english import views as english_views
 urlpatterns = [
     
     path('send-notification/', views.send_notification, name='send_notification'),
+
+    # Forgot / reset password — DEV ONLY (no token, insecure; localhost use)
+    path("account/lookup/", views.lookup_account, name="account-lookup"),
+    path("account/reset-password/", views.reset_password, name="reset-password"),
+
+    # Forgot / reset password — SECURE token-based flow (production-ready shape)
+    path("account/request-reset/", views.request_password_reset, name="request-password-reset"),
+    path("account/confirm-reset/", views.confirm_password_reset, name="confirm-password-reset"),
     
     path("levels/", views.level_list, name="level-list"),
     path("categories/<int:category_id>/units/", views.UnitListView.as_view(), name="unit-list"),

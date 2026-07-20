@@ -267,3 +267,35 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "static"
 
+# Email
+# -----
+# SMTP credentials (Gmail). Provide these via .env locally and Heroku config
+# vars in production. EMAIL_HOST_PASSWORD is a Google "app password" (16 chars,
+# no spaces) — NOT your normal Gmail password. See setup notes in the repo.
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+
+# Auto-select the backend: if Gmail credentials are present, actually send mail;
+# otherwise fall back to the console backend so local dev without creds still
+# prints the reset link to the runserver terminal. Override EMAIL_BACKEND
+# explicitly in .env if you want to force one or the other.
+_default_email_backend = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_BACKEND = config('EMAIL_BACKEND', default=_default_email_backend)
+
+# Gmail requires the From address to match the authenticated account.
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'no-reply@localhost')
+
+# Where the user clicks to finish a password reset. In production point this at
+# your real frontend reset page, e.g. https://phuyenenglish.com/reset-password
+PASSWORD_RESET_FRONTEND_URL = config(
+    'PASSWORD_RESET_FRONTEND_URL',
+    default='http://localhost:5173/reset-password',
+)
+

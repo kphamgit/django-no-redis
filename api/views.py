@@ -1997,3 +1997,159 @@ def reset_card_progress(request, quiz_id):
     return Response({"message": "Card progress reset successfully."})
 
 
+
+
+# ---------------------------------------------------------------------------
+# Forgot / reset password  (localhost dev only — no email, no token, no rate
+# limiting. Passwords are hashed so the original cannot be "retrieved"; this
+# lets a user look up their account and set a new password directly.)
+# ---------------------------------------------------------------------------
+from rest_framework.decorators import permission_classes
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def lookup_account(request):
+    """Given a username OR email, confirm the account exists and return its
+    username + email so a "forgot password" form can pre-fill / confirm."""
+    identifier = (request.data.get("identifier") or "").strip()
+    if not identifier:
+        return Response({"error": "identifier (username or email) is required"}, status=400)
+
+    user = User.objects.filter(username__iexact=identifier).first() \
+        or User.objects.filter(email__iexact=identifier).first()
+    if user is None:
+        return Response({"error": "No account found for that username or email."}, status=404)
+
+    return Response({"username": user.username, "email": user.email}, status=200)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def reset_password(request):
+    """Set a new password for the account matching the given username or email.
+    DEV ONLY: anyone who can reach this endpoint can reset anyone's password."""
+    identifier = (request.data.get("identifier") or request.data.get("username") or "").strip()
+    new_password = request.data.get("new_password") or ""
+
+    if not identifier or not new_password:
+        return Response({"error": "identifier and new_password are required"}, status=400)
+
+    user = User.objects.filter(username__iexact=identifier).first() \
+        or User.objects.filter(email__iexact=identifier).first()
+    if user is None:
+        return Response({"error": "No account found for that username or email."}, status=404)
+
+    user.set_password(new_password)
+    user.save()
+    return Response({"message": f"Password for '{user.username}' has been reset."}, status=200)
+
+
+# ===========================================================================
+# SECURE, TOKEN-BASED PASSWORD RESET  (production-ready shape)
+# ---------------------------------------------------------------------------
+# Flow:
+#   1) POST /api/account/request-reset/  { "identifier": "<username|email>" }
+#        -> looks up the user, generates a signed one-time token, and emails a
+#           reset link. Always returns the SAME generic 200 response so it does
+#           not leak which accounts exist.
+#   2) User clicks the link (frontend page) which carries `uid` + `token`.
+#   3) POST /api/account/confirm-reset/  { "uid", "token", "new_password" }
+#        -> validates the token (time-limited + single-use: it stops working
+#           once the password changes) and sets the new password.
+#
+# Uses Django's default_token_generator — tokens are HMAC-signed, expire after
+# settings.PASSWORD_RESET_TIMEOUT (default 3 days), and are invalidated once
+# the password (or last_login) changes. No token is stored in the DB.
+#
+# TODO(production) before relying on this:
+#   - Add rate limiting on request-reset (e.g. django-ratelimit) to stop abuse.
+#   - Enforce password strength via validate_password (wired in below).
+#   - Serve over HTTPS and set a real EMAIL_BACKEND / DEFAULT_FROM_EMAIL.
+# ===========================================================================
+from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def request_password_reset(request):
+    """Step 1: email a one-time reset link. Always returns a generic message."""
+    identifier = (request.data.get("identifier") or "").strip()
+    generic = Response(
+        {"message": "If an account matches, a reset link has been sent."},
+        status=200,
+    )
+    if not identifier:
+        return generic
+
+    user = User.objects.filter(username__iexact=identifier).first() \
+        or User.objects.filter(email__iexact=identifier).first()
+    # Don't reveal whether the account exists (or has an email) — same response.
+    if user is None or not user.email:
+        return generic
+
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    reset_link = f"{settings.PASSWORD_RESET_FRONTEND_URL}?uid={uid}&token={token}"
+
+    # Localhost DX: the console email backend quoted-printable-encodes the body
+    # (link shows up as uid=3D... and gets soft-wrapped/truncated at 76 chars),
+    # so the link copied from the email body is broken. Print a clean, unwrapped
+    # link to the runserver terminal in DEBUG — COPY THIS ONE, not the email body.
+    if settings.DEBUG:
+        print(
+            "\n" + "=" * 78
+            + f"\n  PASSWORD RESET for {user.username} <{user.email}>"
+            + "\n  Copy the link on the next line (NOT the one in the email body below):"
+            + f"\n  {reset_link}\n"
+            + "=" * 78 + "\n"
+        )
+
+    send_mail(
+        subject="Password reset",
+        message=f"Use this link to reset your password:\n\n{reset_link}\n\n"
+                "If you didn't request this, you can ignore this email.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+    return generic
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def confirm_password_reset(request):
+    """Step 2: verify uid+token and set the new password."""
+    uidb64 = request.data.get("uid") or ""
+    token = request.data.get("token") or ""
+    new_password = request.data.get("new_password") or ""
+
+    if not (uidb64 and token and new_password):
+        return Response({"error": "uid, token and new_password are required"}, status=400)
+
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (ValueError, TypeError, User.DoesNotExist):
+        return Response({"error": "Invalid reset link."}, status=400)
+
+    if not default_token_generator.check_token(user, token):
+        return Response({"error": "Reset link is invalid or has expired."}, status=400)
+
+    try:
+        validate_password(new_password, user=user)
+    except DjangoValidationError as exc:
+        return Response({"error": exc.messages}, status=400)
+
+    user.set_password(new_password)
+    user.save()
+    return Response({"message": "Password has been reset. You can now log in."}, status=200)

@@ -7,6 +7,8 @@ urlpatterns = [
     # LIST views
    
     path("users/list", views.UserListView.as_view(), name="user-list"),
+    path("users/create/", views.UserCreateView.as_view(), name="user-create"),
+    path("users/bulk_delete/", views.user_bulk_delete, name="user-bulk-delete"),
     path("levels/list", views.LevelListView.as_view(), name="level-list"),
     path("levels/<int:pk>/categories/", views.CategoryListView.as_view(), name="category-list"),
     path("categories/<int:pk>/units/", views.UnitListView.as_view(), name="unit-list"),

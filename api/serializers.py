@@ -4,13 +4,22 @@ from .models import Category, Level, Unit, Quiz, QuestionAttempt, QuizAttempt, A
 from english.serializers import QuizSerializer, VideoSegmentSerializer, UnitSerializer
 
 class UserSerializer(serializers.ModelSerializer):
+    # Required so every new signup has an address for password reset, etc.
+    # EmailField also validates the format.
+    email = serializers.EmailField(required=True)
+
     class Meta:
         model = User
-        fields = ["id", "username", "password"]
+        fields = ["id", "username", "email", "password"]
         extra_kwargs = {"password": {"write_only": True}}
 
+    def validate_email(self, value):
+        # Keep emails unique so password reset maps to a single account.
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("A user with that email already exists.")
+        return value
+
     def create(self, validated_data):
-        print(validated_data)
         user = User.objects.create_user(**validated_data)
         return user
 

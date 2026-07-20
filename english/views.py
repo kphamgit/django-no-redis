@@ -9,8 +9,8 @@ from .serializers import UserSerializer, SenseSerializer, ExampleSerializer
 from django.contrib.auth.models import User
 from django.db.models import F
 from rest_framework import generics
-from rest_framework.decorators import api_view
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
 from .utils import read_viet_dict, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url
 
@@ -78,10 +78,27 @@ class LevelListView(generics.ListAPIView):
 class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer  # Use the serializer with sub_categories by default
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
         # Fetch all categories, prefetching sub_categories for optimization
         return User.objects.all().order_by('id')
+
+
+class UserCreateView(generics.CreateAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAdminUser]
+
+    def create(self, request, *args, **kwargs):
+        # The frontend sends the username as "name".
+        username = (request.data.get('name') or request.data.get('username') or '').strip()
+        password = request.data.get('password') or ''
+        if not username or not password:
+            return Response({"error": "name and password are required."}, status=400)
+        if User.objects.filter(username=username).exists():
+            return Response({"error": f"User '{username}' already exists."}, status=400)
+        # create_user hashes the password (never store it in plain text).
+        user = User.objects.create_user(username=username, password=password)
+        return Response(UserSerializer(user).data, status=201)
 
 
 
@@ -377,7 +394,32 @@ def quiz_attempt_bulk_delete(request):
             deleted_count += 1
         except QuizAttempt.DoesNotExist:
             print(f"Quiz_attempt_bulk_delete. Quiz attempt with ID {quiz_attempt_id} not found.")
-    return Response({"message": f"{deleted_count} quiz attempts deleted successfully."})    
+    return Response({"message": f"{deleted_count} quiz attempts deleted successfully."})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
+def user_bulk_delete(request):
+    # request data: {'ids': ['3', '7', ...]}
+    ids = request.data.get('ids', [])
+    deleted_ids = []
+    skipped_ids = []
+    for user_id in ids:
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            print(f"user_bulk_delete. User with ID {user_id} not found.")
+            continue
+        # Never delete the currently-logged-in user or a superuser.
+        if user.pk == request.user.pk or user.is_superuser:
+            skipped_ids.append(str(user_id))
+            continue
+        user.delete()
+        deleted_ids.append(str(user_id))
+    message = f"{len(deleted_ids)} user(s) deleted."
+    if skipped_ids:
+        message += f" {len(skipped_ids)} skipped (current user or superuser)."
+    return Response({"message": message, "deleted_ids": deleted_ids, "skipped_ids": skipped_ids})
 
 
         
