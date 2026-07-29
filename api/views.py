@@ -433,6 +433,7 @@ def openai_transcription(request):
         transcription = client.audio.transcriptions.create(
             model="whisper-1",
             file=(audio_file.name, audio_file.read(), audio_file.content_type),
+            language="en",  # force English transcription
         )
         print("Transcription result:", transcription.text)
         return JsonResponse({'transcription': transcription.text})
@@ -473,11 +474,15 @@ def transcribe_and_save(request):
         print("transcribe_and_save: S3 upload failed:", e)
         return JsonResponse({'error': 'Failed to save audio'}, status=500)
 
-    # 2. Transcribe the same bytes with Whisper
+    # 2. Transcribe the same bytes with Whisper (force English so short/accented audio
+    #    isn't mis-detected as Chinese or another language; the prompt lightly biases toward
+    #    ordinary English without hinting at any specific answer)
     try:
         transcription = client.audio.transcriptions.create(
             model="whisper-1",
             file=(audio_file.name, audio_bytes, audio_file.content_type),
+            language="en",
+            prompt="This is an English speaking practice answer.",
         )
     except Exception as e:
         print("transcribe_and_save: transcription failed:", e)
