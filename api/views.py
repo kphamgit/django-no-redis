@@ -137,6 +137,7 @@ VOICES = {
     "Hannah":         {"voice_id": "ZSNL4hPqCnqoMPaI4jGX", "description": "All-American, bright, natural"},
     "Laura Narrator": {"voice_id": "GZ4PpFJV8ikEGUtBrjK7", "description": "A top narration voice"},
     "Rachel":         {"voice_id": "K7W7zLWeGoxU9YqWoB7A", "description": "Social Media Narrator"},
+    "Jessie Dang":    {"voice_id": "n5UxjYFlD5aLGVRI2HXk", "description": "Vietnamese & Australian accent"},
 }
 
 @csrf_exempt
@@ -202,7 +203,9 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
 
     # Pick the voice by name from the request body, defaulting to "River".
     voice_name = data.get("voice_name", "River")
+    print("Requested voice name:", voice_name)
     voice = VOICES.get(voice_name)
+    print("Selected voice:", voice_name, "voice details:", voice)
     if voice is None:
         return HttpResponseBadRequest(
             f"Unknown voice '{voice_name}'. Available voices: {', '.join(VOICES)}."
@@ -435,7 +438,55 @@ def openai_transcription(request):
         return JsonResponse({'transcription': transcription.text})
     else:
         return JsonResponse({'error': 'No audio file provided'}, status=400)
-    
+
+
+@csrf_exempt
+def transcribe_and_save(request):
+    """
+    Save the uploaded audio to S3 AND transcribe it with Whisper in a single request.
+    Returns {'transcription': <text>, 'audio_url': <presigned S3 url>}.
+    """
+    if request.method != 'POST' or not request.FILES.get('audio'):
+        return JsonResponse({'error': 'No audio file provided'}, status=400)
+
+    audio_file = request.FILES['audio']
+    # Read the bytes once so we can use them for both S3 upload and Whisper.
+    audio_bytes = audio_file.read()
+
+    # 1. Save to S3 under audios/recordings/<filename>
+    s3_key = "audios/recordings/" + audio_file.name
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+        )
+        s3_client.put_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=s3_key,
+            Body=audio_bytes,
+            ContentType="audio/webm",
+        )
+        audio_url = get_s3_audio_url(s3_key)
+    except Exception as e:
+        print("transcribe_and_save: S3 upload failed:", e)
+        return JsonResponse({'error': 'Failed to save audio'}, status=500)
+
+    # 2. Transcribe the same bytes with Whisper
+    try:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(audio_file.name, audio_bytes, audio_file.content_type),
+        )
+    except Exception as e:
+        print("transcribe_and_save: transcription failed:", e)
+        # Audio was still saved; report the URL without a transcript.
+        return JsonResponse({'transcription': '', 'audio_url': audio_url, 'error': 'Transcription failed'}, status=502)
+
+    return JsonResponse({'transcription': transcription.text, 'audio_url': audio_url})
+
+
 class QuizDetailView(generics.RetrieveAPIView):
     serializer_class = QuizDetailSerializer
     permission_classes = [IsAuthenticated]
