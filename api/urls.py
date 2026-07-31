@@ -29,6 +29,8 @@ urlpatterns = [
     path("speech-to-text/", views.openai_transcription, name="speech-to-text"),
     # Save audio to S3 AND transcribe it in one request
     path("transcribe-and-save/", views.transcribe_and_save, name="transcribe-and-save"),
+    # Save a teacher's pasted image to S3 (fixed per-teacher key)
+    path("upload-image/", views.upload_image, name="upload-image"),
 
     #Amazon S3
     path("upload-audio/", views.upload_audio, name="upload-audio"),

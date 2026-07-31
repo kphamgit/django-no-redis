@@ -27,7 +27,7 @@ import json
    
 #  VIEWS
 
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import get_token
 
 class CategoryCreateView(generics.CreateAPIView):
@@ -988,17 +988,54 @@ def get_s3_recordings(request):
     prefix = "audios/recordings/"
     response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
+    # Optional case-insensitive filter: only return recordings whose file name
+    # contains the given student name (e.g. ?student=john).
+    student = request.GET.get('student', '').strip().lower()
+
     recordings = []
     for obj in response.get('Contents', []):
         file_key = obj['Key']
         #print("Found audio file in S3 with key:", file_key)
+        if student and student not in file_key.lower():
+            continue
         url = get_s3_audio_url(file_key)
         recordings.append({
             'file_key': file_key,
             'audio_url': url
         })
-        
+
     return JsonResponse({'recordings': recordings})
+
+
+@csrf_exempt
+def download_recording(request):
+    # Streams an S3 recording back to the client as a file download, so the
+    # browser saves it (Content-Disposition: attachment) without needing S3 CORS.
+    file_key = request.GET.get('file_key')
+    if not file_key:
+        return JsonResponse({'error': 'file_key parameter is required'}, status=400)
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME
+    )
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+
+    try:
+        s3_object = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=404)
+
+    filename = file_key.split('/')[-1] or 'recording'
+    response = StreamingHttpResponse(
+        s3_object['Body'].iter_chunks(),
+        content_type=s3_object.get('ContentType', 'application/octet-stream'),
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
 
 @csrf_exempt
 def delete_audio(request):

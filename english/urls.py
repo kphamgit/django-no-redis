@@ -73,6 +73,7 @@ urlpatterns = [
     path("quizzes/<int:quiz_id>/location/", views.quiz_location, name="quiz-location"),
 
     path("get_recordings_from_s3/", views.get_s3_recordings, name="get-recordings"),
+    path("download-recording/", views.download_recording, name="download-recording"),
     path("delete-audio/", views.delete_audio, name="delete-audio"),
     path("batch-delete-files/", views.batch_delete_files, name="batch-delete-files"),
     

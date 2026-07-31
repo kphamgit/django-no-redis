@@ -492,6 +492,41 @@ def transcribe_and_save(request):
     return JsonResponse({'transcription': transcription.text, 'audio_url': audio_url})
 
 
+@csrf_exempt
+def upload_image(request):
+    """
+    Save a teacher's pasted image to S3 under a FIXED per-teacher key (images/live/<teacher>.png)
+    so it overwrites the previous one — S3 never accumulates image files. Returns a fresh presigned
+    GET url each call (so the student's browser won't show a cached old image).
+    """
+    if request.method != 'POST' or not request.FILES.get('image'):
+        return JsonResponse({'error': 'No image file provided'}, status=400)
+
+    image_file = request.FILES['image']
+    user_name = request.POST.get('user_name', 'teacher')
+    # One object per teacher — overwritten on every send.
+    s3_key = f"images/live/{user_name}.png"
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+        )
+        s3_client.put_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=s3_key,
+            Body=image_file.read(),
+            ContentType=image_file.content_type or "image/png",
+        )
+        image_url = get_s3_audio_url(s3_key)  # generic presigned GET url helper
+    except Exception as e:
+        print("upload_image: S3 upload failed:", e)
+        return JsonResponse({'error': 'Failed to save image'}, status=500)
+
+    return JsonResponse({'image_url': image_url})
+
+
 class QuizDetailView(generics.RetrieveAPIView):
     serializer_class = QuizDetailSerializer
     permission_classes = [IsAuthenticated]
