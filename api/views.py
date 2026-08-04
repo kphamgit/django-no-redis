@@ -1982,7 +1982,8 @@ def _serialize_due_card(card, review, definition_pool):
 
 @api_view(["GET"])
 def get_quiz_cards(request, quiz_id):
-    cards = Card.objects.filter(quiz_id=quiz_id).order_by('id')
+    # Cards are global now; quiz_id is ignored (kept for URL/frontend compatibility).
+    cards = Card.objects.order_by('id')
     serializer = CardSerializer(cards, many=True)
     return Response(serializer.data)
 
@@ -1999,15 +2000,13 @@ def delete_card(request, card_id):
 
 @api_view(["GET"])
 def get_due_cards(request, quiz_id):
-    """Due cards for one quiz (shown before the quiz). A card is due if the user has
-    no review row for it yet or its next_review_at is in the past."""
+    """Due cards for the user. Cards are global now, so quiz_id is ignored (kept for
+    URL/frontend compatibility). A card is due if the user has no review row for it
+    yet or its next_review_at is in the past."""
     now = timezone.now()
-    all_cards = list(Card.objects.filter(quiz_id=quiz_id).order_by('id'))
+    all_cards = list(Card.objects.order_by('id'))
     definition_pool = list({c.definition for c in all_cards if c.definition})
-    reviews = {
-        r.card_id: r
-        for r in CardReview.objects.filter(user=request.user, card__quiz_id=quiz_id)
-    }
+    reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
 
     due_cards = []
     for card in all_cards:
@@ -2025,30 +2024,24 @@ def get_due_cards(request, quiz_id):
 
 @api_view(["GET"])
 def get_all_due_cards(request):
-    """All of a user's due cards across every quiz (the vocabulary review).
-    Includes never-seen cards (no review row yet) as well as cards whose
-    next_review_at is in the past."""
+    """All of a user's due cards (the vocabulary review). Includes never-seen
+    cards (no review row yet) as well as cards whose next_review_at is in the past."""
     now = timezone.now()
     reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
     all_cards = list(Card.objects.order_by('id'))
-    
+
     # print all cards for this user for debug
     if settings.DEBUG:
         print(f"===== get_all_due_cards: user={request.user} has {len(all_cards)} cards, {len(reviews)} review rows =====")
         for card in all_cards:
             review = reviews.get(card.id)
             print(
-                f"  card id={card.id} quiz={card.quiz_id} text={card.text!r} "
+                f"  card id={card.id} text={card.text!r} "
                 f"next_review_at={review.next_review_at if review else 'NO REVIEW (never seen)'}"
             )
 
-    # Per-quiz distractor pools so options stay topically plausible.
-    pools = {}
-    for c in all_cards:
-        if c.definition:
-            pools.setdefault(c.quiz_id, [])
-            if c.definition not in pools[c.quiz_id]:
-                pools[c.quiz_id].append(c.definition)
+    # Single global distractor pool so multiple-choice options stay plausible.
+    definition_pool = list({c.definition for c in all_cards if c.definition})
 
     due_cards = []
     for card in all_cards:
@@ -2059,7 +2052,7 @@ def get_all_due_cards(request):
             or review.next_review_at <= now
         )
         if is_due:
-            due_cards.append(_serialize_due_card(card, review, pools.get(card.quiz_id, [])))
+            due_cards.append(_serialize_due_card(card, review, definition_pool))
 
     return Response({"due_cards": due_cards})
 
@@ -2083,8 +2076,8 @@ def review_card(request, card_id):
 
 @api_view(["POST"])
 def reset_card_progress(request, quiz_id):
-    card_ids = Card.objects.filter(quiz_id=quiz_id).values_list('id', flat=True)
-    CardReview.objects.filter(user=request.user, card_id__in=card_ids).delete()
+    # Cards are global now; reset all of this user's card progress (quiz_id ignored).
+    CardReview.objects.filter(user=request.user).delete()
     return Response({"message": "Card progress reset successfully."})
 
 

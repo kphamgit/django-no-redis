@@ -113,8 +113,6 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
 
 class CardSerializer(serializers.ModelSerializer):
-    quiz_id = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), source='quiz')
-
     class Meta:
         model = Card
-        fields = ["id", "quiz_id", "text", "definition", "difficulty"]
+        fields = ["id", "text", "definition", "difficulty"]

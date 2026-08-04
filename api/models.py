@@ -112,9 +112,8 @@ class QuestionAttempt(models.Model):
         return f"Quesion Attempt for id {self.id} with question attempt number: {self.question.question_number}"
     
 class Card(models.Model):
-    # Shared card content (front = text, back = definition). One row per word per quiz,
+    # Shared global card content (front = text, back = definition). One row per word,
     # reused by all users. Per-user spaced-repetition scheduling lives in CardReview.
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="cards", null=True, blank=True)
     text = models.CharField(max_length=200)
     definition = models.TextField(blank=True, default="")  # back of the card
     difficulty = models.SmallIntegerField(default=0)

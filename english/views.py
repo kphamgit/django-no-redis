@@ -1,6 +1,6 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent, Example
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent, Example, Card
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, CardSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
@@ -299,6 +299,8 @@ class QuizCreateView(generics.ListCreateAPIView):
             print(serializer.errors)
             
 class CardCreateView(generics.ListCreateAPIView):
+    # Cards are global: GET lists every card, POST creates one.
+    queryset = Card.objects.all().order_by('id')
     serializer_class = CardSerializer
     permission_classes = [IsAuthenticated]
 
@@ -1115,10 +1117,11 @@ def batch_delete_files(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 def populate_entry(word):
-    # make a list of 
+    # make a list of
+    print(" calling read_viet_dict with word:", word)
     vdict_entries = read_viet_dict(word)
     # iterate throught the part of speech keys for the word
-   
+    print(" vdict_entries returned: ", vdict_entries)
    
     part_of_speech_list = []
     for part_of_speech in vdict_entries[word].keys():
@@ -1157,31 +1160,20 @@ def populate_entry(word):
         part_of_speech_dict['idioms'] = idioms_list
         
         part_of_speech_list.append(part_of_speech_dict)
+
+    print("***** part_of_speech_list ", part_of_speech_list)
+    return part_of_speech_list
     
-        return part_of_speech_list
-    
-@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
 def delete_dictionary_entry(request):
     try:
-        # Check if the request body is JSON
-        # get word from request body
-        if request.content_type == 'application/json':
-            print("delete_dictionary_entry received JSON request body:", request.body)
-            data = json.loads(request.body)
-            word = data.get('word')
-            source = data.get('source')
-        else:
-            # Handle form-data or x-www-form-urlencoded
-            print("delete_dictionary_entry received non-JSON request, using POST parameters:", request.POST)
-            word = request.POST.get('word')
-            source = request.POST.get('source')
-        
+        word = request.data.get('word')
+        source = request.data.get('source')
         DictEntry.objects.filter(head_word=word, source=source).delete()
-        
-        return JsonResponse({'status': f'Dictionary entry for word "{word}" deleted successfully.'})
-       
+        return Response({'status': f'Dictionary entry for word "{word}" deleted successfully.'})
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return Response({'error': str(e)}, status=500)
     
 @csrf_exempt
 def populate_viet_dictionary(request):
@@ -1196,8 +1188,14 @@ def populate_viet_dictionary(request):
             # Handle form-data or x-www-form-urlencoded
             # print("read_viet_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
-        
+
+        # Don't re-add a word that's already in this dictionary.
+        if DictEntry.objects.filter(head_word=word, source="ho-ngoc-duc-stardict").exists():
+            return JsonResponse({'error': 'exists', 'word': word}, status=409)
+
         part_of_speech_list = populate_entry(word)
+        print(" ************************")
+        print(" part_of_speech_list ", part_of_speech_list)
         for_serialization = {}    
         for_serialization['head_word'] = word
         for_serialization['source'] = "ho-ngoc-duc-stardict"
@@ -1277,7 +1275,11 @@ def  populate_longman_dictionary(request):
             # Handle form-data or x-www-form-urlencoded
             print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
-            
+
+        # Don't re-add a word that's already in this dictionary.
+        if DictEntry.objects.filter(head_word=word, source="longman").exists():
+            return JsonResponse({'error': 'exists', 'word': word}, status=409)
+
         target_url = "https://www.ldoceonline.com/dictionary/" + word # Change this to your dictionary URL
         soup = scrape_longman_url(target_url)
         
