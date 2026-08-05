@@ -115,4 +115,4 @@ class AssignmentSerializer(serializers.ModelSerializer):
 class CardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Card
-        fields = ["id", "text", "definition", "difficulty"]
+        fields = ["id", "text", "definition", "part_of_speech", "difficulty"]

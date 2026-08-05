@@ -85,7 +85,9 @@ urlpatterns = [
     path("populate-longman-dictionary/", views.populate_longman_dictionary, name="populate-longman-dictionary"),
     # update-sense
     path("update-dictionary-sense/<int:pk>/", views.SenseUpdateView.as_view(), name="update-dictionary-sense"),
+    path("update-part-of-speech/<int:pk>/", views.update_part_of_speech, name="update-part-of-speech"),
     path("examples/", views.ExampleCreateView.as_view(), name="example-create"),
+    path("examples/<int:pk>/", views.update_example, name="example-update"),
 
     # path("nlp-test/", views.nlp_test, name="nlp-test"),
 ]

@@ -116,6 +116,7 @@ class Card(models.Model):
     # reused by all users. Per-user spaced-repetition scheduling lives in CardReview.
     text = models.CharField(max_length=200)
     definition = models.TextField(blank=True, default="")  # back of the card
+    part_of_speech = models.CharField(max_length=50, blank=True, default="")  # e.g. "verb", "noun"
     difficulty = models.SmallIntegerField(default=0)
 
     def __str__(self):
@@ -174,10 +175,11 @@ class PartOfSpeech(models.Model):
     amevar_pron = models.CharField(max_length=50, blank=True, null=True)  # american variant pronunciation code
     frequency = models.CharField(max_length=20, blank=True, null=True)
     grammar = models.CharField(max_length=100, blank=True, null=True)
+    video_url = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return self.name
-    
+
 class Sense(models.Model):
     pos = models.ForeignKey(PartOfSpeech, on_delete=models.CASCADE, related_name="senses")
     sense_number = models.SmallIntegerField(default=0)

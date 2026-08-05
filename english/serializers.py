@@ -66,7 +66,7 @@ class QuizSerializer(serializers.ModelSerializer):
 class CardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Card
-        fields = ["id", "text", "definition", "difficulty"]
+        fields = ["id", "text", "definition", "part_of_speech", "difficulty"]
     
 
 class VideoSegmentIdSerializer(serializers.ModelSerializer):
@@ -118,9 +118,10 @@ class PartOfSpeechSerializer(serializers.ModelSerializer):
     class Meta:
         model = PartOfSpeech
         unique_together = ("dict_entry", "name")  # Ensure that the combination of dict_entry and name is unique
-        fields = ["name", "dict_entry_id", "pron_code", "amevar_pron", "frequency", "grammar", "senses", "idioms"]
+        fields = ["id", "name", "dict_entry_id", "pron_code", "amevar_pron", "frequency", "grammar", "video_url", "senses", "idioms"]
         extra_kwargs = {
             "pron_code": {"required": False},
+            "video_url": {"required": False},
         }
     
     def create(self, validated_data):

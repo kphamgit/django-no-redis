@@ -1,6 +1,6 @@
 # Create your views here.
 from django.shortcuts import render
-from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, Assignment, AssignmentStudent, Example, Card
+from api.models import Question, Quiz, Unit, Level, Category, QuizAttempt, QuestionAttempt, VideoSegment, DictEntry, Sense, PartOfSpeech, Assignment, AssignmentStudent, Example, Card
 from .serializers import CategorySerializer, UnitSerializer, QuizSerializer, QuestionSerializer, CardSerializer, \
     LevelSerializer, VideoSegmentSerializer, VideoSegmentIdSerializer, DictEntrySerializer
 from api.serializers import QuizAttemptSerializer, QuestionAttemptSerializer, CategoryWithUnitsSerializer, \
@@ -304,8 +304,23 @@ class CardCreateView(generics.ListCreateAPIView):
     serializer_class = CardSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        serializer.save()
+    def create(self, request, *args, **kwargs):
+        # Idempotent on (text, definition): a given word+sense is a single global
+        # card, so re-posting the same one returns the existing row instead of a duplicate.
+        text = (request.data.get("text") or "").strip()
+        definition = (request.data.get("definition") or "").strip()
+        part_of_speech = (request.data.get("part_of_speech") or "").strip()
+        if not text:
+            return Response({"error": "text is required"}, status=400)
+        card, created = Card.objects.get_or_create(
+            text=text,
+            definition=definition,
+            defaults={
+                "part_of_speech": part_of_speech,
+                "difficulty": request.data.get("difficulty", 0),
+            },
+        )
+        return Response(CardSerializer(card).data, status=201 if created else 200)
 
 class VideoSegmentCreateView(generics.ListCreateAPIView):
     from .serializers import VideoSegmentSerializer
@@ -1229,21 +1244,36 @@ def read_dictionary(request):
             source = data.get('source', None)
         else:
             # Handle form-data or x-www-form-urlencoded
-            print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
+            # print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
             source = request.POST.get('source', None)
         
         if (source):
-            query = DictEntry.objects.filter(head_word__icontains=word, source=source) 
+            query = DictEntry.objects.filter(head_word__icontains=word, source=source)
             # print("read_dictionary, query:", query)
             serializer = DictEntrySerializer(query, many=True)
-        
+
             # print pretty printed serializer data
-            print("read_dictionary, serializer data:", json.dumps(serializer.data, indent=4, ensure_ascii=False))
+            # print("read_dictionary, serializer data:", json.dumps(serializer.data, indent=4, ensure_ascii=False))
             if not serializer.data:
                 return JsonResponse({'error': f'No dictionary entry found for word "{word}" with source "{source}".'}, status=404)
-        
-            return JsonResponse(serializer.data, safe=False)
+
+            data = serializer.data
+            # Annotate each sense with the id of the global Card a teacher created for it
+            # (matched by head_word + definition), or null. The student's "+ Review" button
+            # only appears on senses that already have a card.
+            head_words = {entry['head_word'] for entry in data}
+            card_map = {
+                (c.text, c.definition): c.id
+                for c in Card.objects.filter(text__in=head_words)
+            }
+            for entry in data:
+                hw = entry['head_word']
+                for pos in entry.get('part_of_speeches', []):
+                    for sense in pos.get('senses', []):
+                        sense['card_id'] = card_map.get((hw, sense.get('definition')))
+
+            return JsonResponse(data, safe=False)
         else:   # return error asking to specify source if source is not provided
             return JsonResponse({'error': 'Source dictionary is required when searching for a dictionary entry.'}, status=400)
     
@@ -1480,7 +1510,36 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
         #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
         #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
-    
+
+
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def update_part_of_speech(request, pk):
+    # Updates a PartOfSpeech's video_url (only field the teacher edits here).
+    try:
+        pos = PartOfSpeech.objects.get(id=pk)
+    except PartOfSpeech.DoesNotExist:
+        return Response({"error": "Part of speech not found."}, status=404)
+    if 'video_url' in request.data:
+        pos.video_url = request.data.get('video_url')
+        pos.save()
+    return Response({"id": pos.id, "video_url": pos.video_url})
+
+
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def update_example(request, pk):
+    # Updates an example's sentence.
+    try:
+        example = Example.objects.get(id=pk)
+    except Example.DoesNotExist:
+        return Response({"error": "Example not found."}, status=404)
+    if 'sentence' in request.data:
+        example.sentence = request.data.get('sentence')
+        example.save()
+    return Response({"id": example.id, "sentence": example.sentence})
+
+
 @api_view(['GET'])
 def quiz_location(request, quiz_id):
     try:

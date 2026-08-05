@@ -26,7 +26,7 @@ VOICE_MAP = {
     'fr': 'fr-FR-DeniseNeural',
 }
 
-def synthesize_azure_audio(text, blob_name=None, language='en', slow=False):
+def synthesize_azure_audio(text, blob_name=None, language='en', slow=False, phoneme=None):
     """Synthesize text to speech and upload to Azure Blob. Returns blob URL or None on failure."""
     print(f"Starting audio synthesis for text: '{text}' in language '{language}' with slow={slow}")
     if blob_name is None:
@@ -35,6 +35,7 @@ def synthesize_azure_audio(text, blob_name=None, language='en', slow=False):
         blob_name = f"slow_{blob_name }"
     voice_name = VOICE_MAP.get(language, 'en-US-JennyNeural')
     full_blob_name = f"{blob_name}.mp3"
+    print(f"[synthesize_azure_audio] text='{text}' phoneme='{phoneme}' -> blob='{full_blob_name}'")
 
     print(f"Generating audio for text: '{text}' with voice '{voice_name}' and blob name '{full_blob_name}'")
     blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
@@ -56,11 +57,18 @@ def synthesize_azure_audio(text, blob_name=None, language='en', slow=False):
     audio_config = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
     synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
-    if slow:
+    if slow or phoneme:
+        # Build the inner content, optionally wrapping the word in an IPA phoneme
+        # so heteronyms (e.g. record noun vs verb) get their correct pronunciation.
+        inner = text
+        if phoneme:
+            inner = f'<phoneme alphabet="ipa" ph="{phoneme}">{text}</phoneme>'
+        if slow:
+            inner = f'<prosody rate="slow">{inner}</prosody>'
         ssml = (
             f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{language}">'
             f'<voice name="{voice_name}">'
-            f'<prosody rate="slow">{text}</prosody>'
+            f'{inner}'
             f'</voice></speak>'
         )
         result = synthesizer.speak_ssml_async(ssml).get()

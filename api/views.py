@@ -90,11 +90,18 @@ def create_azure_audio(request):
         data = json.loads(request.body)
         blob_name = data.get('blob_name', 'default_name')
         text = data.get('text', "What is that?")
+        slow = data.get('slow', False)
+        phoneme = data.get('phoneme') or None
     else:
         blob_name = request.POST.get('blob_name', 'default_name')
         text = request.POST.get('text', "What is that?")
+        slow = request.POST.get('slow', 'false').lower() == 'true'
+        phoneme = request.POST.get('phoneme') or None
 
-    url = synthesize_azure_audio(text, blob_name, slow=True)
+    # Default to normal speed so the blob is saved as "<blob_name>.mp3" (not "slow_<blob_name>.mp3").
+    # When a phoneme (IPA) is supplied, the word is wrapped in SSML <phoneme> so heteronyms
+    # (e.g. record noun vs verb) are pronounced correctly by the American voice.
+    url = synthesize_azure_audio(text, blob_name, slow=slow, phoneme=phoneme)
     if url:
         return JsonResponse({'audio_url': url})
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
@@ -1972,6 +1979,7 @@ def _serialize_due_card(card, review, definition_pool):
         "id": card.id,
         "text": card.text,                 # front (the word)
         "definition": correct_def,         # back (correct definition, for post-answer reveal)
+        "part_of_speech": card.part_of_speech,
         "options": options,                # shuffled multiple-choice options
         "easiness": review.easiness if review else 2.5,
         "interval": review.interval if review else 0,
@@ -2024,35 +2032,25 @@ def get_due_cards(request, quiz_id):
 
 @api_view(["GET"])
 def get_all_due_cards(request):
-    """All of a user's due cards (the vocabulary review). Includes never-seen
-    cards (no review row yet) as well as cards whose next_review_at is in the past."""
+    """A user's due cards (the vocabulary review). Opt-in: only cards the student has
+    explicitly added (a CardReview row exists) whose next_review_at is now or in the past."""
     now = timezone.now()
-    reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
-    all_cards = list(Card.objects.order_by('id'))
+    reviews = list(CardReview.objects.filter(user=request.user).select_related('card'))
 
-    # print all cards for this user for debug
+    # print this user's review rows for debug
     if settings.DEBUG:
-        print(f"===== get_all_due_cards: user={request.user} has {len(all_cards)} cards, {len(reviews)} review rows =====")
-        for card in all_cards:
-            review = reviews.get(card.id)
-            print(
-                f"  card id={card.id} text={card.text!r} "
-                f"next_review_at={review.next_review_at if review else 'NO REVIEW (never seen)'}"
-            )
+        print(f"===== get_all_due_cards: user={request.user} has {len(reviews)} review rows =====")
+        for review in reviews:
+            print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
 
-    # Single global distractor pool so multiple-choice options stay plausible.
-    definition_pool = list({c.definition for c in all_cards if c.definition})
+    # Distractor pool drawn from all cards so multiple-choice options stay plausible.
+    definition_pool = list({c.definition for c in Card.objects.all() if c.definition})
 
     due_cards = []
-    for card in all_cards:
-        review = reviews.get(card.id)
-        is_due = (
-            review is None
-            or review.next_review_at is None
-            or review.next_review_at <= now
-        )
+    for review in reviews:
+        is_due = review.next_review_at is None or review.next_review_at <= now
         if is_due:
-            due_cards.append(_serialize_due_card(card, review, definition_pool))
+            due_cards.append(_serialize_due_card(review.card, review, definition_pool))
 
     return Response({"due_cards": due_cards})
 
@@ -2072,6 +2070,34 @@ def review_card(request, card_id):
     apply_sm2(review, quality)
     review.save()
     return Response(CardSerializer(card).data)
+
+
+# When a student adds a card to their review, schedule its first review this many days
+# out (1 = the shortest SM-2 span). Set to 0 to make added cards reviewable immediately.
+INITIAL_REVIEW_DELAY_DAYS = 0
+
+
+@api_view(["POST"])
+def add_card_to_review(request, card_id):
+    """Student opts a (teacher-created) card into their personal review queue.
+    Creates a CardReview due INITIAL_REVIEW_DELAY_DAYS from now. Idempotent:
+    unique_together(user, card) means a repeat click just returns the existing row."""
+    from datetime import timedelta
+    try:
+        card = Card.objects.get(id=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": "Card not found."}, status=404)
+    review, created = CardReview.objects.get_or_create(
+        user=request.user,
+        card=card,
+        defaults={
+            "easiness": 2.5,
+            "interval": 0,
+            "repetitions": 0,
+            "next_review_at": timezone.now() + timedelta(days=INITIAL_REVIEW_DELAY_DAYS),
+        },
+    )
+    return Response({"card_id": card.id, "already_added": not created}, status=200)
 
 
 @api_view(["POST"])

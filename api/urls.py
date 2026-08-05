@@ -84,6 +84,7 @@ urlpatterns = [
     path("quizzes/<int:quiz_id>/cards/due/", views.get_due_cards, name="due-cards"),
     path("cards/due/", views.get_all_due_cards, name="all-due-cards"),
     path("cards/<int:card_id>/review/", views.review_card, name="review-card"),
+    path("cards/<int:card_id>/add-to-review/", views.add_card_to_review, name="add-card-to-review"),
     path("quizzes/<int:quiz_id>/cards/reset/", views.reset_card_progress, name="reset-card-progress"),
 
     # use only by tienganhbabbel
