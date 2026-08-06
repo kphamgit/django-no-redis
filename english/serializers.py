@@ -118,10 +118,11 @@ class PartOfSpeechSerializer(serializers.ModelSerializer):
     class Meta:
         model = PartOfSpeech
         unique_together = ("dict_entry", "name")  # Ensure that the combination of dict_entry and name is unique
-        fields = ["id", "name", "dict_entry_id", "pron_code", "amevar_pron", "frequency", "grammar", "video_url", "senses", "idioms"]
+        fields = ["id", "name", "dict_entry_id", "pron_code", "amevar_pron", "frequency", "grammar", "video_url", "audio_blob", "senses", "idioms"]
         extra_kwargs = {
             "pron_code": {"required": False},
             "video_url": {"required": False},
+            "audio_blob": {"read_only": True},
         }
     
     def create(self, validated_data):

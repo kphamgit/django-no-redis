@@ -1515,15 +1515,29 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def update_part_of_speech(request, pk):
-    # Updates a PartOfSpeech's video_url (only field the teacher edits here).
+    # Updates a PartOfSpeech's editable fields (video_url and/or pron_code).
     try:
         pos = PartOfSpeech.objects.get(id=pk)
     except PartOfSpeech.DoesNotExist:
         return Response({"error": "Part of speech not found."}, status=404)
+    changed = False
     if 'video_url' in request.data:
         pos.video_url = request.data.get('video_url')
+        changed = True
+    if 'pron_code' in request.data:
+        pos.pron_code = request.data.get('pron_code')
+        changed = True
+    if 'amevar_pron' in request.data:
+        pos.amevar_pron = request.data.get('amevar_pron')
+        changed = True
+    if changed:
         pos.save()
-    return Response({"id": pos.id, "video_url": pos.video_url})
+    return Response({
+        "id": pos.id,
+        "video_url": pos.video_url,
+        "pron_code": pos.pron_code,
+        "amevar_pron": pos.amevar_pron,
+    })
 
 
 @api_view(["PATCH"])

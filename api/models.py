@@ -176,6 +176,9 @@ class PartOfSpeech(models.Model):
     frequency = models.CharField(max_length=20, blank=True, null=True)
     grammar = models.CharField(max_length=100, blank=True, null=True)
     video_url = models.TextField(blank=True, null=True)
+    # Blob name (without ".mp3") of this POS's pronunciation audio in the "tts-audio" container.
+    # Set by create_azure_audio when audio is generated; empty means "no audio yet".
+    audio_blob = models.CharField(max_length=255, blank=True, default="")
 
     def __str__(self):
         return self.name

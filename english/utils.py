@@ -26,6 +26,39 @@ VOICE_MAP = {
     'fr': 'fr-FR-DeniseNeural',
 }
 
+import re as _re
+
+# --- Pronunciation audio blob naming (the SINGLE source of truth) ---------------------------
+# These mirror the old TypeScript audioBlobName.ts exactly (verified byte-for-byte against the
+# JS djb2). The backend now owns this logic so the two frontends can just read the stored name
+# instead of re-deriving it. If you change this, nothing else needs to change.
+
+def hash_pron(s):
+    """Deterministic short token for an IPA string (djb2 -> base36), matching JS charCodeAt.
+    IPA symbols are all in the BMP, so ord(ch) == JS charCodeAt(i)."""
+    h = 5381
+    for ch in s:
+        h = ((h << 5) + h + ord(ch)) & 0xFFFFFFFF  # keep 32-bit unsigned, like JS `>>> 0`
+    if h == 0:
+        return "0"
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out = ""
+    while h:
+        out = digits[h % 36] + out
+        h //= 36
+    return out
+
+def clean_pron(pron):
+    """First pronunciation variant only, trimmed, with a single stray trailing period dropped."""
+    return _re.sub(r'\.$', '', (pron or '').split(',')[0].strip())
+
+def pos_blob_name(word, pron):
+    """Azure blob name (no extension) for a word's pronunciation audio.
+    has pron -> "{word}_{hash(pron)}" (dedupes identical-sounding POS); no pron -> "{word}"."""
+    base = _re.sub(r'\s+', '_', (word or '').strip()).lower()
+    phoneme = clean_pron(pron)
+    return f"{base}_{hash_pron(phoneme)}" if phoneme else base
+
 def synthesize_azure_audio(text, blob_name=None, language='en', slow=False, phoneme=None):
     """Synthesize text to speech and upload to Azure Blob. Returns blob URL or None on failure."""
     print(f"Starting audio synthesis for text: '{text}' in language '{language}' with slow={slow}")

@@ -82,28 +82,43 @@ import boto3
 from botocore.config import Config # ⬅️ Import this
 
 from django.conf import settings
-from english.utils import synthesize_azure_audio, get_s3_audio_url
+from english.utils import synthesize_azure_audio, get_s3_audio_url, pos_blob_name, clean_pron
+from api.models import PartOfSpeech
 
 @csrf_exempt
 def create_azure_audio(request):
-    if request.content_type == 'application/json':
-        data = json.loads(request.body)
-        blob_name = data.get('blob_name', 'default_name')
-        text = data.get('text', "What is that?")
-        slow = data.get('slow', False)
-        phoneme = data.get('phoneme') or None
-    else:
-        blob_name = request.POST.get('blob_name', 'default_name')
-        text = request.POST.get('text', "What is that?")
-        slow = request.POST.get('slow', 'false').lower() == 'true'
-        phoneme = request.POST.get('phoneme') or None
+    data = json.loads(request.body) if request.content_type == 'application/json' else request.POST
 
-    # Default to normal speed so the blob is saved as "<blob_name>.mp3" (not "slow_<blob_name>.mp3").
-    # When a phoneme (IPA) is supplied, the word is wrapped in SSML <phoneme> so heteronyms
-    # (e.g. record noun vs verb) are pronounced correctly by the American voice.
+    text = data.get('text') or "What is that?"
+    slow = data.get('slow', False)
+    if isinstance(slow, str):
+        slow = slow.lower() == 'true'
+    pos_id = data.get('pos_id') or None
+    pron = data.get('pron')       # raw IPA (amevar_pron or pron_code); part-of-speech flow only
+    blob_name = data.get('blob_name')
+    phoneme = data.get('phoneme') or None
+
+    # Part-of-speech flow: the backend is the single source of truth for the blob name, so the
+    # frontends never hash the IPA themselves. Deriving from the raw pron also cleans the phoneme.
+    if pos_id:
+        blob_name = pos_blob_name(text, pron)   # pron may be None -> "{word}" (default voice)
+        phoneme = clean_pron(pron) or None
+    elif not blob_name:
+        blob_name = 'default_name'
+
+    # Normal-speed blob "<blob_name>.mp3". When a phoneme (IPA) is supplied, the word is wrapped
+    # in SSML <phoneme> so heteronyms (e.g. record noun vs verb) are pronounced correctly.
     url = synthesize_azure_audio(text, blob_name, slow=slow, phoneme=phoneme)
     if url:
-        return JsonResponse({'audio_url': url})
+        # For the part-of-speech flow, also generate a natural slow re-synthesis saved as
+        # "slow_<blob_name>.mp3" (synthesize_azure_audio adds the "slow_" prefix). The student
+        # app plays the normal clip and then this one, so its name is derivable and not stored.
+        if pos_id and not slow:
+            synthesize_azure_audio(text, blob_name, slow=True, phoneme=phoneme)
+        # Remember the exact (normal) blob name on the POS so both apps can find it without hashing.
+        if pos_id:
+            PartOfSpeech.objects.filter(id=pos_id).update(audio_blob=blob_name)
+        return JsonResponse({'audio_url': url, 'blob_name': blob_name})
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
 
 # Third-party SDKs
