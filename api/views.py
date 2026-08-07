@@ -110,15 +110,18 @@ def create_azure_audio(request):
     # in SSML <phoneme> so heteronyms (e.g. record noun vs verb) are pronounced correctly.
     url = synthesize_azure_audio(text, blob_name, slow=slow, phoneme=phoneme)
     if url:
+        slow_blob_name = None
         # For the part-of-speech flow, also generate a natural slow re-synthesis saved as
         # "slow_<blob_name>.mp3" (synthesize_azure_audio adds the "slow_" prefix). The student
         # app plays the normal clip and then this one, so its name is derivable and not stored.
         if pos_id and not slow:
-            synthesize_azure_audio(text, blob_name, slow=True, phoneme=phoneme)
+            slow_url = synthesize_azure_audio(text, blob_name, slow=True, phoneme=phoneme)
+            if slow_url:
+                slow_blob_name = f"slow_{blob_name}"
         # Remember the exact (normal) blob name on the POS so both apps can find it without hashing.
         if pos_id:
             PartOfSpeech.objects.filter(id=pos_id).update(audio_blob=blob_name)
-        return JsonResponse({'audio_url': url, 'blob_name': blob_name})
+        return JsonResponse({'audio_url': url, 'blob_name': blob_name, 'slow_blob_name': slow_blob_name})
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
 
 # Third-party SDKs
