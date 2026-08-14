@@ -83,6 +83,7 @@ urlpatterns = [
     path("cards/<int:card_id>/delete/", views.delete_card, name="delete-card"),
     path("quizzes/<int:quiz_id>/cards/due/", views.get_due_cards, name="due-cards"),
     path("cards/due/", views.get_all_due_cards, name="all-due-cards"),
+    path("cards/all/", views.get_all_cards_for_user, name="all-cards"),
     path("cards/<int:card_id>/review/", views.review_card, name="review-card"),
     path("cards/<int:card_id>/add-to-review/", views.add_card_to_review, name="add-card-to-review"),
     path("quizzes/<int:quiz_id>/cards/reset/", views.reset_card_progress, name="reset-card-progress"),

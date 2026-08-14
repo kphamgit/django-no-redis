@@ -2051,13 +2051,28 @@ def get_due_cards(request, quiz_id):
 @api_view(["GET"])
 def get_all_due_cards(request):
     """A user's due cards (the vocabulary review). Opt-in: only cards the student has
-    explicitly added (a CardReview row exists) whose next_review_at is now or in the past."""
+    explicitly added (a CardReview row exists) whose next_review_at is now or in the past.
+
+    Defaults to the logged-in user. Staff may pass ?user_id=<id> to view another user's
+    due cards (used by the admin Users table)."""
     now = timezone.now()
-    reviews = list(CardReview.objects.filter(user=request.user).select_related('card'))
+
+    target_user = request.user
+    user_id = request.query_params.get('user_id')
+    if user_id:
+        if not request.user.is_staff:
+            return Response({"error": "Not authorized to view another user's due cards."}, status=403)
+        from django.contrib.auth.models import User
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=404)
+
+    reviews = list(CardReview.objects.filter(user=target_user).select_related('card'))
 
     # print this user's review rows for debug
     if settings.DEBUG:
-        print(f"===== get_all_due_cards: user={request.user} has {len(reviews)} review rows =====")
+        print(f"===== get_all_due_cards: user={target_user} has {len(reviews)} review rows =====")
         for review in reviews:
             print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
 
@@ -2071,6 +2086,39 @@ def get_all_due_cards(request):
             due_cards.append(_serialize_due_card(review.card, review, definition_pool))
 
     return Response({"due_cards": due_cards})
+
+
+@api_view(["GET"])
+def get_all_cards_for_user(request):
+    """Every card a user has added to their review (all CardReview rows), regardless of whether
+    it is currently due. Defaults to the logged-in user; staff may pass ?user_id=<id> to view
+    another user's cards (used by the admin Users table). No multiple-choice options are built
+    since this is a listing, not a quiz."""
+    target_user = request.user
+    user_id = request.query_params.get('user_id')
+    if user_id:
+        if not request.user.is_staff:
+            return Response({"error": "Not authorized to view another user's cards."}, status=403)
+        from django.contrib.auth.models import User
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=404)
+
+    reviews = (CardReview.objects.filter(user=target_user)
+               .select_related('card')
+               .order_by('next_review_at'))
+    cards = [{
+        "id": r.card.id,
+        "text": r.card.text,
+        "definition": r.card.definition,
+        "part_of_speech": r.card.part_of_speech,
+        "easiness": r.easiness,
+        "interval": r.interval,
+        "repetitions": r.repetitions,
+        "next_review_at": r.next_review_at,
+    } for r in reviews]
+    return Response({"cards": cards})
 
 
 @api_view(["POST"])
