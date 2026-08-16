@@ -118,6 +118,10 @@ class Card(models.Model):
     definition = models.TextField(blank=True, default="")  # back of the card
     part_of_speech = models.CharField(max_length=50, blank=True, default="")  # e.g. "verb", "noun"
     difficulty = models.SmallIntegerField(default=0)
+    # The dictionary sense this card was created from, if any. Cards made outside the dictionary
+    # flow (e.g. NewCard) leave this null. Used to detect "a card already exists for this sense"
+    # in lookups — robust to definition edits (unlike matching on definition text).
+    sense = models.ForeignKey('Sense', on_delete=models.SET_NULL, null=True, blank=True, related_name="cards")
 
     def __str__(self):
         return self.text

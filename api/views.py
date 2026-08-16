@@ -82,7 +82,7 @@ import boto3
 from botocore.config import Config # ⬅️ Import this
 
 from django.conf import settings
-from english.utils import synthesize_azure_audio, get_s3_audio_url, pos_blob_name, clean_pron
+from english.utils import synthesize_azure_audio, get_s3_audio_url, pos_blob_name, clean_pron, tts_blob_exists
 from api.models import PartOfSpeech
 
 @csrf_exempt
@@ -106,6 +106,10 @@ def create_azure_audio(request):
     elif not blob_name:
         blob_name = 'default_name'
 
+    # Did this exact clip already exist? (synthesize_azure_audio returns the existing blob
+    # without regenerating, so check first to tell the client.) Slow clips are "slow_<name>".
+    existed = tts_blob_exists(f"slow_{blob_name}" if slow else blob_name)
+
     # Normal-speed blob "<blob_name>.mp3". When a phoneme (IPA) is supplied, the word is wrapped
     # in SSML <phoneme> so heteronyms (e.g. record noun vs verb) are pronounced correctly.
     url = synthesize_azure_audio(text, blob_name, slow=slow, phoneme=phoneme)
@@ -121,7 +125,7 @@ def create_azure_audio(request):
         # Remember the exact (normal) blob name on the POS so both apps can find it without hashing.
         if pos_id:
             PartOfSpeech.objects.filter(id=pos_id).update(audio_blob=blob_name)
-        return JsonResponse({'audio_url': url, 'blob_name': blob_name, 'slow_blob_name': slow_blob_name})
+        return JsonResponse({'audio_url': url, 'blob_name': blob_name, 'slow_blob_name': slow_blob_name, 'existed': existed})
     return JsonResponse({'error': 'Audio synthesis failed'}, status=500)
 
 # Third-party SDKs
@@ -2329,3 +2333,33 @@ def confirm_password_reset(request):
     user.set_password(new_password)
     user.save()
     return Response({"message": "Password has been reset. You can now log in."}, status=200)
+
+
+# ---------------------------------------------------------------------------
+# Lemmatization (spaCy)
+# ---------------------------------------------------------------------------
+from api.nlp import get_nlp
+
+
+@api_view(["POST"])
+def lemmatize(request):
+    """Tokenize + lemmatize English text with spaCy.
+
+    POST body: { "text": "records are recording" }
+    Returns each token's text, lemma, and part-of-speech, plus a flat lemma list.
+    """
+    text = (request.data.get("text") or "").strip()
+    if not text:
+        return Response({"error": "Missing 'text' in request body."}, status=400)
+
+    doc = get_nlp()(text)
+    tokens = [
+        {"text": token.text, "lemma": token.lemma_, "pos": token.pos_}
+        for token in doc
+        if not token.is_space
+    ]
+    return Response({
+        "text": text,
+        "tokens": tokens,
+        "lemmas": [t["lemma"] for t in tokens],
+    })

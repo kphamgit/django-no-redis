@@ -10,6 +10,9 @@ urlpatterns = [
     
     path('send-notification/', views.send_notification, name='send_notification'),
 
+    # spaCy lemmatization
+    path("lemmatize/", views.lemmatize, name="lemmatize"),
+
     # Forgot / reset password — DEV ONLY (no token, insecure; localhost use)
     path("account/lookup/", views.lookup_account, name="account-lookup"),
     path("account/reset-password/", views.reset_password, name="reset-password"),

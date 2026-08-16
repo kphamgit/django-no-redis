@@ -305,21 +305,35 @@ class CardCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        # Idempotent on (text, definition): a given word+sense is a single global
-        # card, so re-posting the same one returns the existing row instead of a duplicate.
+        # A card can be created from a dictionary sense (sense_id given) or standalone (NewCard).
+        # When a sense_id is given, the card is idempotent ON THE SENSE: one card per sense, so
+        # re-posting returns the existing row and definition edits don't create duplicates.
+        # Without a sense_id, fall back to idempotency on (text, definition).
         text = (request.data.get("text") or "").strip()
         definition = (request.data.get("definition") or "").strip()
         part_of_speech = (request.data.get("part_of_speech") or "").strip()
+        sense_id = request.data.get("sense_id") or None
         if not text:
             return Response({"error": "text is required"}, status=400)
-        card, created = Card.objects.get_or_create(
-            text=text,
-            definition=definition,
-            defaults={
-                "part_of_speech": part_of_speech,
-                "difficulty": request.data.get("difficulty", 0),
-            },
-        )
+
+        defaults = {
+            "text": text,
+            "definition": definition,
+            "part_of_speech": part_of_speech,
+            "difficulty": request.data.get("difficulty", 0),
+        }
+        if sense_id:
+            card, created = Card.objects.get_or_create(
+                sense_id=sense_id,
+                defaults=defaults,
+            )
+        else:
+            card, created = Card.objects.get_or_create(
+                text=text,
+                definition=definition,
+                sense__isnull=True,
+                defaults=defaults,
+            )
         return Response(CardSerializer(card).data, status=201 if created else 200)
 
 class VideoSegmentCreateView(generics.ListCreateAPIView):
@@ -1259,28 +1273,66 @@ def read_dictionary(request):
                 return JsonResponse({'error': f'No dictionary entry found for word "{word}" with source "{source}".'}, status=404)
 
             data = serializer.data
-            # Annotate each sense with the id of the global Card a teacher created for it
-            # (matched by head_word + definition), or null. The student's "+ Review" button
-            # only appears on senses that already have a card.
-            head_words = {entry['head_word'] for entry in data}
-            card_map = {
-                (c.text, c.definition): c.id
-                for c in Card.objects.filter(text__in=head_words)
+            # Annotate each sense with the id of the global Card created from it (matched by
+            # sense id), or null. The student's "+ Review" button and the teacher's
+            # "Card Available" state only appear on senses that already have a card.
+            sense_ids = [
+                sense['id']
+                for entry in data
+                for pos in entry.get('part_of_speeches', [])
+                for sense in pos.get('senses', [])
+            ]
+            card_by_sense = {
+                c.sense_id: c.id
+                for c in Card.objects.filter(sense_id__in=sense_ids)
             }
             for entry in data:
-                hw = entry['head_word']
                 for pos in entry.get('part_of_speeches', []):
                     for sense in pos.get('senses', []):
-                        sense['card_id'] = card_map.get((hw, sense.get('definition')))
+                        sense['card_id'] = card_by_sense.get(sense['id'])
 
             return JsonResponse(data, safe=False)
         else:   # return error asking to specify source if source is not provided
             return JsonResponse({'error': 'Source dictionary is required when searching for a dictionary entry.'}, status=400)
-    
+
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-        
+
+
+@csrf_exempt
+def tokenize_text(request):
+    """Split text into clean word tokens with spaCy for the teacher's 'convert to buttons'
+    feature. Runs the FULL pipeline so each token carries context-sensitive POS + lemma
+    (e.g. "record" the verb vs. "record" the noun are distinguished by context). Punctuation
+    and whitespace tokens are dropped.
+
+    Returns {'tokens': [{'index', 'text', 'pos', 'lemma'}, ...]}, where `index` is the
+    position in the returned (filtered) list — so the teacher's Nth button maps to token N,
+    letting each occurrence of a repeated word be marked independently."""
+    try:
+        if request.content_type == 'application/json':
+            text = json.loads(request.body).get('text', '')
+        else:
+            text = request.POST.get('text', '')
+        text = (text or '').strip()
+        if not text:
+            return JsonResponse({'tokens': []})
+
+        from api.nlp import get_nlp
+        # Full pipeline: the tagger/lemmatizer run, giving per-token POS + lemma from context.
+        doc = get_nlp()(text)
+        words = [t for t in doc if not t.is_punct and not t.is_space]
+        # `start` is the token's character offset in the text, so the student can locate each
+        # marked occurrence in the exact text and turn just that span into a button.
+        tokens = [
+            {'index': i, 'text': t.text, 'pos': t.pos_, 'lemma': t.lemma_, 'start': t.idx}
+            for i, t in enumerate(words)
+        ]
+        return JsonResponse({'tokens': tokens})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
     """
      # exact match — raises DoesNotExist if not found
         query = DictEntry.objects.get(head_word=word)

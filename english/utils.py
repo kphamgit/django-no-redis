@@ -119,6 +119,14 @@ def synthesize_azure_audio(text, blob_name=None, language='en', slow=False, phon
     print("Audio synthesis failed for text:", text, "Reason:", result.reason)
     return None
 
+
+def tts_blob_exists(blob_name):
+    """Return True if "<blob_name>.mp3" already exists in the tts-audio container.
+    Lets callers tell the client whether audio was newly created or already present."""
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container="tts-audio", blob=f"{blob_name}.mp3")
+    return blob_client.exists()
+
 # 1. Provide the base name (no extension) 
 # Example: if your file is 'eng-vie.ifo', use 'eng-vie'
 DICT_BASE_NAME = "en_vi" 
