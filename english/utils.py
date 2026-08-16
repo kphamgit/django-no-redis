@@ -61,16 +61,16 @@ def pos_blob_name(word, pron):
 
 def synthesize_azure_audio(text, blob_name=None, language='en', slow=False, phoneme=None):
     """Synthesize text to speech and upload to Azure Blob. Returns blob URL or None on failure."""
-    print(f"Starting audio synthesis for text: '{text}' in language '{language}' with slow={slow}")
+    # print(f"Starting audio synthesis for text: '{text}' in language '{language}' with slow={slow}")
     if blob_name is None:
         blob_name = f"fr_{text}" if language != 'en' else text
     if slow:
         blob_name = f"slow_{blob_name }"
     voice_name = VOICE_MAP.get(language, 'en-US-JennyNeural')
     full_blob_name = f"{blob_name}.mp3"
-    print(f"[synthesize_azure_audio] text='{text}' phoneme='{phoneme}' -> blob='{full_blob_name}'")
+    # print(f"[synthesize_azure_audio] text='{text}' phoneme='{phoneme}' -> blob='{full_blob_name}'")
 
-    print(f"Generating audio for text: '{text}' with voice '{voice_name}' and blob name '{full_blob_name}'")
+    # print(f"Generating audio for text: '{text}' with voice '{voice_name}' and blob name '{full_blob_name}'")
     blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
     blob_client = blob_service_client.get_blob_client(container="tts-audio", blob=full_blob_name)
  

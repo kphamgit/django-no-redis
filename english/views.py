@@ -1256,11 +1256,13 @@ def read_dictionary(request):
             data = json.loads(request.body)
             word = data.get('word')
             source = data.get('source', None)
+            user_name = data.get('user_name')  # student: used to hide "+ Review" for cards already in review
         else:
             # Handle form-data or x-www-form-urlencoded
             # print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
             source = request.POST.get('source', None)
+            user_name = request.POST.get('user_name')
         
         if (source):
             query = DictEntry.objects.filter(head_word__icontains=word, source=source)
@@ -1286,10 +1288,22 @@ def read_dictionary(request):
                 c.sense_id: c.id
                 for c in Card.objects.filter(sense_id__in=sense_ids)
             }
+            # Which of those cards the student already has in their review queue (so the client
+            # can hide "+ Review" for them). Requires user_name since this is a plain (non-DRF) view.
+            in_review_card_ids = set()
+            if user_name and card_by_sense:
+                from api.models import CardReview
+                in_review_card_ids = set(
+                    CardReview.objects
+                    .filter(user__username=user_name, card_id__in=card_by_sense.values())
+                    .values_list('card_id', flat=True)
+                )
             for entry in data:
                 for pos in entry.get('part_of_speeches', []):
                     for sense in pos.get('senses', []):
-                        sense['card_id'] = card_by_sense.get(sense['id'])
+                        card_id = card_by_sense.get(sense['id'])
+                        sense['card_id'] = card_id
+                        sense['in_review'] = card_id in in_review_card_ids
 
             return JsonResponse(data, safe=False)
         else:   # return error asking to specify source if source is not provided

@@ -2075,10 +2075,10 @@ def get_all_due_cards(request):
     reviews = list(CardReview.objects.filter(user=target_user).select_related('card'))
 
     # print this user's review rows for debug
-    if settings.DEBUG:
-        print(f"===== get_all_due_cards: user={target_user} has {len(reviews)} review rows =====")
-        for review in reviews:
-            print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
+    # if settings.DEBUG:
+        # print(f"===== get_all_due_cards: user={target_user} has {len(reviews)} review rows =====")
+        # for review in reviews:
+        # print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
 
     # Distractor pool drawn from all cards so multiple-choice options stay plausible.
     definition_pool = list({c.definition for c in Card.objects.all() if c.definition})
@@ -2168,6 +2168,32 @@ def add_card_to_review(request, card_id):
         },
     )
     return Response({"card_id": card.id, "already_added": not created}, status=200)
+
+
+@api_view(["POST"])
+def add_sense_card_to_review(request, sense_id):
+    """Add the (already-existing) card for a dictionary sense to the student's review queue,
+    due now so it can be learned immediately, and return the card for display. The card is
+    expected to already exist (created when the teacher made cards for the sense)."""
+    from datetime import timedelta  # noqa: F401 (kept parallel with add_card_to_review)
+    card = Card.objects.filter(sense_id=sense_id).first()
+    if card is None:
+        return Response({"error": "No card exists for this sense."}, status=404)
+    _review, created = CardReview.objects.get_or_create(
+        user=request.user,
+        card=card,
+        defaults={
+            "easiness": 2.5,
+            "interval": 0,
+            "repetitions": 0,
+            "next_review_at": timezone.now(),  # due now -> immediately reviewable
+        },
+    )
+    # `created` lets the client show the review popup only the first time (option 2): once the
+    # card is already in the queue, a repeat click just plays audio.
+    data = dict(CardSerializer(card).data)
+    data["created"] = created
+    return Response(data, status=200)
 
 
 @api_view(["POST"])
