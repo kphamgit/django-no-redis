@@ -22,6 +22,36 @@ import json
 #import redis
 
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Like the normal login, but only issues tokens to users with is_staff=True.
+    Used by the admin/teacher app so students (is_staff=False) cannot sign in there.
+    The regular /api/token/ endpoint is unchanged and still serves the student app."""
+    def validate(self, attrs):
+        data = super().validate(attrs)  # authenticates credentials; sets self.user
+        if not self.user.is_staff:
+            raise PermissionDenied("This account is not authorized to access this app (staff only).")
+        return data
+
+
+class StaffTokenObtainPairView(TokenObtainPairView):
+    serializer_class = StaffTokenObtainPairSerializer
+
+
+@api_view(["GET"])
+def current_user(request):
+    """The logged-in user's identity + permission flags, so the SPA can gate UI (e.g. show the
+    'create dictionary entry' option only to staff or student_staff users)."""
+    profile = getattr(request.user, 'profile', None)
+    return Response({
+        "username": request.user.username,
+        "is_staff": request.user.is_staff,
+        "student_staff": bool(getattr(profile, 'student_staff', False)),
+    })
 
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -2172,13 +2202,24 @@ def add_card_to_review(request, card_id):
 
 @api_view(["POST"])
 def add_sense_card_to_review(request, sense_id):
-    """Add the (already-existing) card for a dictionary sense to the student's review queue,
-    due now so it can be learned immediately, and return the card for display. The card is
-    expected to already exist (created when the teacher made cards for the sense)."""
+    """Add a dictionary sense's card to the student's review queue, due now so it can be learned
+    immediately, and return the card. If no card exists yet for the sense (e.g. a word the
+    student just created), create it from the sense first so students can review new words."""
     from datetime import timedelta  # noqa: F401 (kept parallel with add_card_to_review)
+    from .models import Sense
     card = Card.objects.filter(sense_id=sense_id).first()
     if card is None:
-        return Response({"error": "No card exists for this sense."}, status=404)
+        # No card for this sense yet — build one from the sense's own data.
+        try:
+            sense = Sense.objects.select_related('pos__dict_entry').get(id=sense_id)
+        except Sense.DoesNotExist:
+            return Response({"error": "Sense not found."}, status=404)
+        card = Card.objects.create(
+            sense=sense,
+            text=sense.pos.dict_entry.head_word,
+            definition=sense.definition or "",
+            part_of_speech=sense.pos.name or "",
+        )
     _review, created = CardReview.objects.get_or_create(
         user=request.user,
         card=card,

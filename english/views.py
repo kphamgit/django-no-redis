@@ -453,6 +453,76 @@ def user_bulk_delete(request):
     return Response({"message": message, "deleted_ids": deleted_ids, "skipped_ids": skipped_ids})
 
 
+def _user_detail_payload(user):
+    profile = getattr(user, 'profile', None)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "is_staff": user.is_staff,
+        "student_staff": bool(getattr(profile, 'student_staff', False)),
+    }
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def get_user_detail(request, user_id):
+    """Editable profile fields for a single user (admin only)."""
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found."}, status=404)
+    return Response(_user_detail_payload(user))
+
+
+@api_view(["PATCH", "POST"])
+@permission_classes([IsAdminUser])
+def update_user(request, user_id):
+    """Update a user's username, first_name, last_name, email, is_staff (admin only)."""
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found."}, status=404)
+
+    data = request.data
+    if "username" in data:
+        new_username = (data.get("username") or "").strip()
+        if not new_username:
+            return Response({"error": "Username cannot be empty."}, status=400)
+        if User.objects.filter(username=new_username).exclude(id=user.id).exists():
+            return Response({"error": f"Username '{new_username}' is already taken."}, status=400)
+        user.username = new_username
+    if "first_name" in data:
+        user.first_name = (data.get("first_name") or "").strip()
+    if "last_name" in data:
+        user.last_name = (data.get("last_name") or "").strip()
+    if "email" in data:
+        user.email = (data.get("email") or "").strip()
+    if "is_staff" in data:
+        new_is_staff = data.get("is_staff")
+        if isinstance(new_is_staff, str):
+            new_is_staff = new_is_staff.lower() == "true"
+        # Prevent self-lockout: an admin cannot strip their own staff access.
+        if user.pk == request.user.pk and not new_is_staff:
+            return Response({"error": "You cannot remove your own staff access."}, status=400)
+        user.is_staff = bool(new_is_staff)
+
+    user.save()
+
+    if "student_staff" in data:
+        new_student_staff = data.get("student_staff")
+        if isinstance(new_student_staff, str):
+            new_student_staff = new_student_staff.lower() == "true"
+        from api.models import Profile
+        profile, _ = Profile.objects.get_or_create(user=user)
+        profile.student_staff = bool(new_student_staff)
+        profile.save()
+
+    return Response(_user_detail_payload(user))
+
+
         
 class CategoryCreateView(generics.ListCreateAPIView):
     serializer_class = CategorySerializer
@@ -1151,7 +1221,11 @@ def populate_entry(word):
     vdict_entries = read_viet_dict(word)
     # iterate throught the part of speech keys for the word
     print(" vdict_entries returned: ", vdict_entries)
-   
+
+    # Word not present in the Viet dictionary -> return no parts of speech (caller reports it).
+    if not vdict_entries or word not in vdict_entries:
+        return []
+
     part_of_speech_list = []
     for part_of_speech in vdict_entries[word].keys():
         part_of_speech_dict = {}
@@ -1204,8 +1278,22 @@ def delete_dictionary_entry(request):
     except Exception as e:
         return Response({'error': str(e)}, status=500)
     
-@csrf_exempt
+def _can_add_dictionary_entry(user):
+    """Only staff (teachers/admins) or users whose profile has student_staff=True may add
+    entries to the dictionary. Everyone else can search/read only."""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_staff:
+        return True
+    profile = getattr(user, 'profile', None)
+    return bool(getattr(profile, 'student_staff', False))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def populate_viet_dictionary(request):
+    if not _can_add_dictionary_entry(request.user):
+        return JsonResponse({'error': 'You do not have permission to add dictionary entries.'}, status=403)
     try:
         # Check if the request body is JSON
         # get word from request body
@@ -1225,7 +1313,15 @@ def populate_viet_dictionary(request):
         part_of_speech_list = populate_entry(word)
         print(" ************************")
         print(" part_of_speech_list ", part_of_speech_list)
-        for_serialization = {}    
+
+        # No parts of speech -> the word isn't in this dictionary. Report it clearly.
+        if not part_of_speech_list:
+            return JsonResponse(
+                {'error': f'"{word}" was not found in the Vietnamese dictionary. Please check the spelling.'},
+                status=404,
+            )
+
+        for_serialization = {}
         for_serialization['head_word'] = word
         for_serialization['source'] = "ho-ngoc-duc-stardict"
         for_serialization['part_of_speeches'] = part_of_speech_list
@@ -1358,8 +1454,11 @@ def tokenize_text(request):
         return JsonResponse(serializer.data)
     """
     
-@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def  populate_longman_dictionary(request):
+    if not _can_add_dictionary_entry(request.user):
+        return JsonResponse({'error': 'You do not have permission to add dictionary entries.'}, status=403)
     try:
         # Check if the request body is JSON
         # get word from request body
@@ -1378,7 +1477,14 @@ def  populate_longman_dictionary(request):
 
         target_url = "https://www.ldoceonline.com/dictionary/" + word # Change this to your dictionary URL
         soup = scrape_longman_url(target_url)
-        
+
+        # The page couldn't be fetched/parsed (bad word, network issue, etc.).
+        if soup is None:
+            return JsonResponse(
+                {'error': f'Could not look up "{word}" in the Longman dictionary. Please check the spelling.'},
+                status=404,
+            )
+
         dict_entry = soup.find_all('span', class_ = lambda x: x and 'dictentry' in x)
         for_serialization = {}
         for_serialization['head_word'] = word
@@ -1535,6 +1641,14 @@ def  populate_longman_dictionary(request):
             
                 part_of_speeches_list.append(part_of_speech_dict)
                                    
+        # No parts of speech scraped -> the word isn't a valid Longman entry (e.g. a misspelling
+        # that lands on a "did you mean" page). Report it clearly instead of failing later.
+        if not part_of_speeches_list:
+            return JsonResponse(
+                {'error': f'"{word}" was not found in the Longman dictionary. Please check the spelling.'},
+                status=404,
+            )
+
         for_serialization['part_of_speeches'] = part_of_speeches_list
         serializer = DictEntrySerializer(data=for_serialization)
         # for_serialization['part_of_speeches'] = part_of_speech.get_text(strip=True)

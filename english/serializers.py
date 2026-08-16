@@ -32,9 +32,16 @@ class LevelSerializer(serializers.ModelSerializer):
         extra_kwargs = {"categories": {"read_only": True}}
         
 class UserSerializer(serializers.ModelSerializer):
+    student_staff = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username",]
+        fields = ["id", "username", "is_staff", "is_superuser", "student_staff"]
+        extra_kwargs = {"is_staff": {"read_only": True}, "is_superuser": {"read_only": True}}
+
+    def get_student_staff(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return bool(getattr(profile, 'student_staff', False))
         
 class VideoSegmentSerializer(serializers.ModelSerializer):
     # define a custom field for question_ids (there's no field with this name in the model)

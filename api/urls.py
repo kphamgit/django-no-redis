@@ -9,6 +9,7 @@ from english import views as english_views
 urlpatterns = [
     
     path('send-notification/', views.send_notification, name='send_notification'),
+    path("me/", views.current_user, name="current-user"),
 
     # spaCy lemmatization
     path("lemmatize/", views.lemmatize, name="lemmatize"),

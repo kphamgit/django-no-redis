@@ -7,6 +7,8 @@ from django.core.validators import MaxValueValidator
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     group = models.CharField(max_length=100, blank=True)
+    # A student who also has some staff/helper privileges (distinct from Django's is_staff).
+    student_staff = models.BooleanField(default=False)
 
     def __str__(self):
         return f'{self.user.username} Profile'
