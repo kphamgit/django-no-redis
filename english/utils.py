@@ -171,12 +171,12 @@ def read_viet_dict(word):
         collect_line = True
         line_number = 0
         for line in entry.splitlines():
-            print(f"Processing line: {line}")
+            # print(f"Processing line: {line}")
             line = line.strip()
             if line.startswith("*"):    # new part_of_speech section
                 in_idioms_section = False
                 part_of_speech = line[1:].strip()
-                print(f" ************** Found new part of speech: {part_of_speech}")
+                # print(f" ************** Found new part of speech: {part_of_speech}")
                 if (part_of_speech == "danh từ"):
                     part_of_speech = "noun"
                 elif ("động từ" in part_of_speech):

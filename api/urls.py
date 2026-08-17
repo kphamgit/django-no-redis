@@ -14,6 +14,9 @@ urlpatterns = [
     # spaCy lemmatization
     path("lemmatize/", views.lemmatize, name="lemmatize"),
 
+    # lemminflect word inflection
+    path("inflect/", views.inflect, name="inflect"),
+
     # Forgot / reset password — DEV ONLY (no token, insecure; localhost use)
     path("account/lookup/", views.lookup_account, name="account-lookup"),
     path("account/reset-password/", views.reset_password, name="reset-password"),
@@ -91,6 +94,7 @@ urlpatterns = [
     path("cards/<int:card_id>/review/", views.review_card, name="review-card"),
     path("cards/<int:card_id>/add-to-review/", views.add_card_to_review, name="add-card-to-review"),
     path("cards/from-sense/<int:sense_id>/add-to-review/", views.add_sense_card_to_review, name="sense-card-add-to-review"),
+    path("cards/check-senses/", views.check_cards_for_senses, name="check-cards-for-senses"),
     path("quizzes/<int:quiz_id>/cards/reset/", views.reset_card_progress, name="reset-card-progress"),
 
     # use only by tienganhbabbel

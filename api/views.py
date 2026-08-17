@@ -2238,6 +2238,18 @@ def add_sense_card_to_review(request, sense_id):
 
 
 @api_view(["POST"])
+def check_cards_for_senses(request):
+    """Given {"sense_ids": [...]}, return which of them already have a card
+    ({"existing_sense_ids": [...]}). Lets the teacher confirm every marked word has a card
+    before sending text to students."""
+    sense_ids = request.data.get("sense_ids", []) or []
+    existing = list(
+        Card.objects.filter(sense_id__in=sense_ids).values_list("sense_id", flat=True)
+    )
+    return Response({"existing_sense_ids": existing})
+
+
+@api_view(["POST"])
 def reset_card_progress(request, quiz_id):
     # Cards are global now; reset all of this user's card progress (quiz_id ignored).
     CardReview.objects.filter(user=request.user).delete()
@@ -2429,4 +2441,44 @@ def lemmatize(request):
         "text": text,
         "tokens": tokens,
         "lemmas": [t["lemma"] for t in tokens],
+    })
+
+
+# ---------------------------------------------------------------------------
+# Word inflection (lemminflect)
+# ---------------------------------------------------------------------------
+from lemminflect import getAllInflections, getAllInflectionsOOV
+
+
+@api_view(["POST"])
+def inflect(request):
+    """Return the inflected forms of a word using lemminflect.
+
+    POST body: { "word": "move", "upos": "VERB" }   # upos is optional
+    The input is treated as a LEMMA (base form). `upos` (Universal POS, e.g.
+    VERB, NOUN, ADJ, ADV) narrows the result; omit it to get every part of speech.
+    Returns inflections keyed by Penn Treebank tag, plus a flat unique-form list.
+    NOTE: this is inflection only (moved/moves/moving), not derivation (mover/movable).
+    """
+    word = (request.data.get("word") or "").strip()
+    upos = (request.data.get("upos") or "").strip().upper() or None
+    if not word:
+        return Response({"error": "Missing 'word' in request body."}, status=400)
+
+    inflections = getAllInflections(word, upos=upos)
+    if not inflections and upos:
+        # Word not in the dictionary — fall back to out-of-vocabulary rules
+        # (these need a upos to know which paradigm to apply).
+        inflections = getAllInflectionsOOV(word, upos=upos)
+
+    # lemminflect returns {tag: (forms,)} — convert tuples to lists for JSON,
+    # and build a flat, de-duplicated list of all surface forms.
+    inflections = {tag: list(forms) for tag, forms in inflections.items()}
+    forms = sorted({f for forms in inflections.values() for f in forms})
+
+    return Response({
+        "word": word,
+        "upos": upos,
+        "inflections": inflections,
+        "forms": forms,
     })

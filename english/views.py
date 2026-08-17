@@ -1220,7 +1220,7 @@ def populate_entry(word):
     print(" calling read_viet_dict with word:", word)
     vdict_entries = read_viet_dict(word)
     # iterate throught the part of speech keys for the word
-    print(" vdict_entries returned: ", vdict_entries)
+    # print(" vdict_entries returned: ", vdict_entries)
 
     # Word not present in the Viet dictionary -> return no parts of speech (caller reports it).
     if not vdict_entries or word not in vdict_entries:
@@ -1264,7 +1264,7 @@ def populate_entry(word):
         
         part_of_speech_list.append(part_of_speech_dict)
 
-    print("***** part_of_speech_list ", part_of_speech_list)
+    # print("***** part_of_speech_list ", part_of_speech_list)
     return part_of_speech_list
     
 @api_view(["POST"])
@@ -1311,8 +1311,8 @@ def populate_viet_dictionary(request):
             return JsonResponse({'error': 'exists', 'word': word}, status=409)
 
         part_of_speech_list = populate_entry(word)
-        print(" ************************")
-        print(" part_of_speech_list ", part_of_speech_list)
+        # print(" ************************")
+        # print(" part_of_speech_list ", part_of_speech_list)
 
         # No parts of speech -> the word isn't in this dictionary. Report it clearly.
         if not part_of_speech_list:
