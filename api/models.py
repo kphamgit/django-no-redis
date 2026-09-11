@@ -165,6 +165,7 @@ class AssignmentStudent(models.Model):
 
 class DictEntry(models.Model):
     head_word = models.CharField(max_length=100)
+    hyphenated = models.CharField(max_length=100, blank=True, default="")  # e.g., "dic-tion-ary"
     source = models.CharField(max_length=60, blank=True, null=True)  # e.g., "longman", "ho-ngoc-duc-stardict"
 
     class Meta:

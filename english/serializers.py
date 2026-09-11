@@ -2,6 +2,7 @@ from rest_framework import serializers
 #from .models import Note
 from api.models import Unit, Quiz, Question, Card, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
 from django.contrib.auth.models import User
+from .utils import hyphenation
 
 class QuestionSerializer(serializers.ModelSerializer):
     #video_segment = serializers.PrimaryKeyRelatedField(queryset=VideoSegment.objects.all(), required=False, allow_null=False)
@@ -151,10 +152,13 @@ class DictEntrySerializer(serializers.ModelSerializer):
     part_of_speeches = PartOfSpeechSerializer(many=True)  # Use the nested serializer
     class Meta:
         model = DictEntry
-        fields = ["head_word", "source", "part_of_speeches"]
-   
+        fields = ["head_word", "hyphenated", "source", "part_of_speeches"]
+
     def create(self, validated_data):
         part_of_speeches_data = validated_data.pop("part_of_speeches", [])
+        # Auto-fill the hyphenation from the head word if the caller didn't supply one.
+        if not validated_data.get("hyphenated"):
+            validated_data["hyphenated"] = hyphenation(validated_data["head_word"])
         dict_entry = DictEntry.objects.create(**validated_data)
         for pos_data in part_of_speeches_data:
             pos_data['dict_entry'] = dict_entry

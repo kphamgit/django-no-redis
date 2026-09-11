@@ -2250,6 +2250,15 @@ def check_cards_for_senses(request):
 
 
 @api_view(["POST"])
+def check_words_audio(request):
+    """Given {"words": [...]}, return which already have a (normal-speed) TTS clip in the
+    tts-audio container ({"existing": [...]}), so the client can skip creating audio for them."""
+    words = request.data.get("words", []) or []
+    existing = [w for w in words if w and tts_blob_exists(w)]
+    return Response({"existing": existing})
+
+
+@api_view(["POST"])
 def reset_card_progress(request, quiz_id):
     # Cards are global now; reset all of this user's card progress (quiz_id ignored).
     CardReview.objects.filter(user=request.user).delete()

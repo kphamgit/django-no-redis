@@ -129,16 +129,17 @@ def tts_blob_exists(blob_name):
 
 # 1. Provide the base name (no extension) 
 # Example: if your file is 'eng-vie.ifo', use 'eng-vie'
-DICT_BASE_NAME = "en_vi" 
+VI_ENG_DICT_BASE_NAME = "en_vi"
+FRA_ENG_DICT_BASE_NAME = "fra-eng" 
 
-def read_viet_dict(word):
-    print(" read_viet_dict ENTRY word", word)
-    if not os.path.exists(f"{DICT_BASE_NAME}.ifo"):
-        print(f"Error: Could not find {DICT_BASE_NAME}.ifo in the current folder.")
+def read_star_dict(word):
+    # print(" read_viet_dict ENTRY word", word)
+    if not os.path.exists(f"{VI_ENG_DICT_BASE_NAME}.ifo"):
+        print(f"Error: Could not find {VI_ENG_DICT_BASE_NAME}.ifo in the current folder.")
         return
 
-    print(f"--- Loading {DICT_BASE_NAME} ---")
-    sd_dict = Dictionary(DICT_BASE_NAME)
+    print(f"--- Loading {VI_ENG_DICT_BASE_NAME} ---")
+    sd_dict = Dictionary(VI_ENG_DICT_BASE_NAME)
     
     # 2. Print metadata
     # print(f"&&&&&&&& Total Words: {len(sd_dict)}")
@@ -227,6 +228,18 @@ def read_viet_dict(word):
 
 import requests
 from bs4 import BeautifulSoup
+
+import pyphen
+
+# Build the hyphenation dictionary once at import and reuse it (building it per
+# call is wasteful). British (en_GB) patterns match Longman/Cambridge, e.g.
+# "dictionary" -> "dic-tion-ary" (en_US would give "dic-tio-nary").
+_pyphen_dic = pyphen.Pyphen(lang='en_GB')
+
+
+def hyphenation(word):
+    # Returns the word with hyphens at valid break points, e.g. "dic-tion-ary".
+    return _pyphen_dic.inserted(word)
 
 def scrape_longman_url(url):
     # 1. Send a request to the URL

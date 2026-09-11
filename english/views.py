@@ -12,7 +12,8 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_viet_dict, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url
+
 
 import boto3
 from botocore.config import Config # ⬅️ Import this
@@ -1217,8 +1218,11 @@ def batch_delete_files(request):
 
 def populate_entry(word):
     # make a list of
-    print(" calling read_viet_dict with word:", word)
-    vdict_entries = read_viet_dict(word)
+    # print(" calling read_star_dict with word:", word)
+    # call hyphenation with the word "dictionary" for testing
+    # print(hyphenation("dictionary") )
+    
+    vdict_entries = read_star_dict(word)
     # iterate throught the part of speech keys for the word
     # print(" vdict_entries returned: ", vdict_entries)
 
