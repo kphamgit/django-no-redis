@@ -12,7 +12,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese
 
 
 import boto3
@@ -1310,6 +1310,15 @@ def populate_viet_dictionary(request):
             # print("read_viet_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
 
+        # TEST: verify syllabify() works during populate (remove once confirmed).
+        # _syl = syllabify(word)
+        # print(f"[syllabify TEST] word={word!r} found={_syl['found']} "
+        #       f"count={_syl['syllable_count']} syllables={[' '.join(s) for s in _syl['syllables']]}")
+
+        # Same helper the serializer uses, so this matches the stored viet_pron_code exactly.
+        _viet = word_to_vietnamese(word)
+        # print(f"[arpabet->vietnamese TEST] word={word!r} vietnamese={_viet}")
+
         # Don't re-add a word that's already in this dictionary.
         if DictEntry.objects.filter(head_word=word, source="ho-ngoc-duc-stardict").exists():
             return JsonResponse({'error': 'exists', 'word': word}, status=409)
@@ -1335,13 +1344,18 @@ def populate_viet_dictionary(request):
         serializer = DictEntrySerializer(data=for_serialization)
         
         if serializer.is_valid():
-            serializer.save()
+            saved_entry = serializer.save()
         else:
             # print("Serializer errors:", serializer.errors)
             # return error response if serializer is not valid
             return JsonResponse({'error': 'Failed to serialize dictionary entry.', 'details': serializer.errors}, status=400)
-        
-        return JsonResponse({'status': 'Vietnamese dictionary populated successfully.'})
+
+        # TEST: show/return the exact entry the client receives, incl. viet_pron_code (remove once confirmed).
+        client_data = DictEntrySerializer(saved_entry).data
+        # for _pos in client_data.get('part_of_speeches', []):
+        #     print(f"[viet_pron_code TEST] pos={_pos.get('name')!r} viet_pron_code={_pos.get('viet_pron_code')!r}")
+
+        return JsonResponse({'status': 'Vietnamese dictionary populated successfully.', 'entry': client_data, 'vietnamese': _viet})
        
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -1714,6 +1728,15 @@ def update_part_of_speech(request, pk):
     if 'amevar_pron' in request.data:
         pos.amevar_pron = request.data.get('amevar_pron')
         changed = True
+    if 'viet_pron_code' in request.data:
+        # Stored as a JSON-array string of alternatives. Accept either a list (from the editor)
+        # or an already-encoded string, and normalise to a JSON string.
+        value = request.data.get('viet_pron_code')
+        if isinstance(value, (list, tuple)):
+            pos.viet_pron_code = json.dumps(list(value), ensure_ascii=False)
+        else:
+            pos.viet_pron_code = value
+        changed = True
     if changed:
         pos.save()
     return Response({
@@ -1721,6 +1744,7 @@ def update_part_of_speech(request, pk):
         "video_url": pos.video_url,
         "pron_code": pos.pron_code,
         "amevar_pron": pos.amevar_pron,
+        "viet_pron_code": pos.viet_pron_code,
     })
 
 

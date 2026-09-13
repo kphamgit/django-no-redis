@@ -180,6 +180,8 @@ class PartOfSpeech(models.Model):
     name = models.CharField(max_length=50)
     pron_code = models.CharField(max_length=50, blank=True, null=True)  # british pronunciation code
     amevar_pron = models.CharField(max_length=50, blank=True, null=True)  # american variant pronunciation code
+    viet_pron_code = models.CharField(max_length=255, blank=True, null=True)  # Vietnamese pronunciation code (JSON array of alternatives)
+    viet_pron_regional_variant = models.CharField(max_length=255, blank=True, default="")  # regional variant note; filled in manually after populate
     frequency = models.CharField(max_length=20, blank=True, null=True)
     grammar = models.CharField(max_length=100, blank=True, null=True)
     video_url = models.TextField(blank=True, null=True)
