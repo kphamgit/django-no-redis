@@ -2058,6 +2058,27 @@ def delete_card(request, card_id):
     return Response(status=204)
 
 
+@api_view(["POST"])
+def remove_cards_from_review(request):
+    """Remove cards from a user's review deck WITHOUT deleting the global Card (so other users
+    keep theirs). Deletes only that user's CardReview rows for the given card_ids.
+    Defaults to the logged-in user; staff may pass user_id to act on another user."""
+    card_ids = request.data.get('card_ids', [])
+    target_user = request.user
+    user_id = request.data.get('user_id')
+    if user_id:
+        if not request.user.is_staff:
+            return Response({"error": "Not authorized to modify another user's review."}, status=403)
+        from django.contrib.auth.models import User
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=404)
+
+    deleted, _ = CardReview.objects.filter(user=target_user, card_id__in=card_ids).delete()
+    return Response({"removed": deleted})
+
+
 @api_view(["GET"])
 def get_due_cards(request, quiz_id):
     """Due cards for the user. Cards are global now, so quiz_id is ignored (kept for

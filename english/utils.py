@@ -388,27 +388,28 @@ def syllabify(word):
 # ways in Vietnamese (e.g. "AH0" -> "Ớ" or "Ấ"). Only a couple of entries for
 # now — add more as the approach is validated.
 ARPABET_VOWELS_TO_VIETNAMESE = {
-    "AA0": ["o"], "AA1": ["ó"],"AA9": ["ò"],
-    "AE0": ["a"],"AE1": ["á"],"AE9": ["à"],
+    "AA0": ["o"], "AA1": ["ó"],"AA2": ["ó"],"AA9": ["ò"],
+    "AE0": ["a"],"AE1": ["á"],"AE2": ["á"],"AE9": ["à"],
     "AH0": ["ơ", "â"],
     "AH1": ["ớ", "ấ"],
-    "AH9": ["ờ"],
-    "AO0": ["ô", "o"],"AO1": ["ố", "ó"],"AO9": ["ồ", "ò"],
-    "AW0": ["ao"],"AW1": ["áo"], "AW9": ["ào"],
-    "AX0": ["ơ"],"AX1": ["ờ"], "AX9": ["ờ"],
-    "AXR0": ["ơ"],"AXR1": ["ờ"],
-    "AY0": ["ai"],"AY1": ["ái"],"AY9": ["ài"],
-    "EH0": ["e"],"EH1": ["é"],"EH9": ["è"],
-    "ER0": ["ơr"],"ER1": ["ớr"],"ER9": ["ờr"],
-    "EY0": ["ay"],"EY1": ["áy"],"EY9": ["ày"],
+    "AH2": ["ớ", "ấ"],
+    "AH9": ["ờ","ầ"],
+    "AO0": ["ô", "o"],"AO1": ["ố", "ó"],"AO2": ["ố", "ó"],"AO9": ["ồ", "ò"],
+    "AW0": ["ao"],"AW1": ["áo"],"AW2": ["áo"], "AW9": ["ào"],
+    "AX0": ["ơ"],"AX1": ["ờ"],"AX2": ["ờ"], "AX9": ["ờ"],
+    "AXR0": ["ơ"],"AXR1": ["ờ"],"AXR2": ["ờ"],
+    "AY0": ["ai"],"AY1": ["ái"],"AY2": ["ái"],"AY9": ["ài"],
+    "EH0": ["e"],"EH1": ["é"],"EH2": ["é"], "EH9": ["è"],
+    "ER0": ["ơr"],"ER1": ["ớr"],"ER2": ["ớr"],"ER9": ["ờr"],
+    "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
     "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì"],
-    "IX0": ["iz"],"IX1": ["íz"],"IX9": ["ìz"],
-    "IY0": ["i"],"IY1": ["í"], "IY9": ["ì"], 
-    "OW0": ["âu", "ơu"],"OW1": ["ấu", "ớu"],"OW9": ["ầu", "ờu"],
-    "OY0": ["ôi"],"OY1": ["ối",],"OY9": ["ồi"],
-    "UH0": ["u"],"UH1": ["ú"], "UH9": ["ù"],
-    "UW0": ["u"],"UW1": ["ú"],  "UW9": ["ù"],
-    "UX0": ["u"],"UX1": ["ú"], "UX9": ["ù"],
+    "IX0": ["iz"],"IX1": ["íz"],"IX2": ["íz"],"IX9": ["ìz"],
+    "IY0": ["i"],"IY1": ["í"],"IY2": ["í"], "IY9": ["ì"],
+    "OW0": ["âu", "ơu"],"OW1": ["ấu", "ớu"],"OW2": ["ấu", "ớu"],"OW9": ["ầu", "ờu"],
+    "OY0": ["ôi"],"OY1": ["ối",],"OY2": ["ối"],"OY9": ["ồi"],
+    "UH0": ["u"],"UH1": ["ú"],"UH2": ["ú"], "UH9": ["ù"],
+    "UW0": ["u"],"UW1": ["ú"],"UW2": ["ú"],  "UW9": ["ù"],
+    "UX0": ["u"],"UX1": ["ú"],"UX2": ["ú"], "UX9": ["ù"],
 }
 
 optional_r_array = ['ố', 'ó', 'ò', 'ơ', 'ồ']
@@ -418,6 +419,9 @@ ARPABET_CONSONANTS_TO_VIETNAMESE_EXCEPTIONS = {
     "D": ["đ"],
     "W": ["qu"],
 }
+
+# 
+FINAL_CONSONANT_INDICATOR = ['ai', 'ái', 'ay', 'áy', 'ôi', 'oi']
 
 # --- Contextual add-on rules ------------------------------------------------
 # Some Vietnamese renderings depend on a phoneme's NEIGHBOURS, not just the
@@ -639,6 +643,15 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
     # unstressed -> set its vowel's stress digit to 9. The last syllable's vowel
     # is the last phoneme ending in a stress digit.
     if word and word.lower().endswith(("ic", "sion", "tion")):
+        for j in range(len(phonemes) - 1, -1, -1):
+            if phonemes[j][-1:].isdigit():
+                phonemes[j] = phonemes[j][:-1] + "9"
+                break
+
+    # Rule: words ending in -ory, -ary, -ery (repository, necessary, bakery) or
+    # -rry (carry, merry, hurry, sorry) -> the final "y" vowel (usually IY0)
+    # should carry stress 9. Same action: set the last vowel's stress digit to 9.
+    if word and word.lower().endswith(("ory", "ary", "ery", "rry")):
         for j in range(len(phonemes) - 1, -1, -1):
             if phonemes[j][-1:].isdigit():
                 phonemes[j] = phonemes[j][:-1] + "9"

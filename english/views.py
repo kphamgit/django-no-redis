@@ -12,7 +12,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet
 
 
 import boto3
@@ -1319,6 +1319,11 @@ def populate_viet_dictionary(request):
         _viet = word_to_vietnamese(word)
         # print(f"[arpabet->vietnamese TEST] word={word!r} vietnamese={_viet}")
 
+        # Debug aid: the raw ARPAbet phonemes (POS-independent, from cmudict).
+        # The per-POS modified phonemes are added to each part of speech below.
+        _syl = syllabify(word)
+        _arpabet_original = _syl["phonemes"]
+
         # Don't re-add a word that's already in this dictionary.
         if DictEntry.objects.filter(head_word=word, source="ho-ngoc-duc-stardict").exists():
             return JsonResponse({'error': 'exists', 'word': word}, status=409)
@@ -1350,12 +1355,22 @@ def populate_viet_dictionary(request):
             # return error response if serializer is not valid
             return JsonResponse({'error': 'Failed to serialize dictionary entry.', 'details': serializer.errors}, status=400)
 
-        # TEST: show/return the exact entry the client receives, incl. viet_pron_code (remove once confirmed).
         client_data = DictEntrySerializer(saved_entry).data
-        # for _pos in client_data.get('part_of_speeches', []):
-        #     print(f"[viet_pron_code TEST] pos={_pos.get('name')!r} viet_pron_code={_pos.get('viet_pron_code')!r}")
 
-        return JsonResponse({'status': 'Vietnamese dictionary populated successfully.', 'entry': client_data, 'vietnamese': _viet})
+        # Debug aid: attach the POS-specific modified ARPAbet to each part of
+        # speech, so the teacher sees exactly what produced its viet_pron_code
+        # (e.g. the 2-syllable verb rule turning IH2..AO1 into IH9..AO0).
+        for _pos in client_data.get('part_of_speeches', []):
+            _pos['arpabet_modified'] = modify_arpabet(
+                list(_arpabet_original), _pos.get('name'), _syl["syllable_count"], word
+            )
+
+        return JsonResponse({
+            'status': 'Vietnamese dictionary populated successfully.',
+            'entry': client_data,
+            'vietnamese': _viet,
+            'arpabet_original': _arpabet_original,
+        })
        
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -1413,7 +1428,14 @@ def read_dictionary(request):
                     .values_list('card_id', flat=True)
                 )
             for entry in data:
+                # Debug aid: raw ARPAbet (POS-independent) + per-POS modified
+                # ARPAbet, so the teacher can inspect the pronunciation pipeline.
+                _syl = syllabify(entry.get('head_word', ''))
+                entry['arpabet_original'] = _syl['phonemes']
                 for pos in entry.get('part_of_speeches', []):
+                    pos['arpabet_modified'] = modify_arpabet(
+                        list(_syl['phonemes']), pos.get('name'), _syl['syllable_count'], entry.get('head_word', '')
+                    )
                     for sense in pos.get('senses', []):
                         card_id = card_by_sense.get(sense['id'])
                         sense['card_id'] = card_id
@@ -1424,6 +1446,25 @@ def read_dictionary(request):
             return JsonResponse({'error': 'Source dictionary is required when searching for a dictionary entry.'}, status=400)
 
 
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+VIET_DICT_SOURCE = "ho-ngoc-duc-stardict"
+
+
+@csrf_exempt
+def list_viet_dictionary_words(request):
+    """Return just the head word (keyword) of every entry in the Vietnamese
+    (Ho Ngoc Duc) dictionary, alphabetically. Response: {"count", "words"}."""
+    try:
+        words = list(
+            DictEntry.objects
+            .filter(source=VIET_DICT_SOURCE)
+            .order_by("head_word")
+            .values_list("head_word", flat=True)
+        )
+        return JsonResponse({"count": len(words), "words": words})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
