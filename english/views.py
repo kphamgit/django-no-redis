@@ -1394,7 +1394,8 @@ def read_dictionary(request):
             user_name = request.POST.get('user_name')
         
         if (source):
-            query = DictEntry.objects.filter(head_word__icontains=word, source=source)
+            # Exact (case-insensitive) match — icontains would wrongly return "national" for "nation".
+            query = DictEntry.objects.filter(head_word__iexact=word, source=source)
             # print("read_dictionary, query:", query)
             serializer = DictEntrySerializer(query, many=True)
 
