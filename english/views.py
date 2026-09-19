@@ -1332,12 +1332,15 @@ def populate_viet_dictionary(request):
         # print(" ************************")
         # print(" part_of_speech_list ", part_of_speech_list)
 
-        # No parts of speech -> the word isn't in this dictionary. Report it clearly.
+        # Word not in the Vietnamese StarDict -> create a dummy entry (one empty
+        # noun sense) so the teacher can fill in the definition themselves,
+        # rather than failing. The viet_pron_code still auto-fills from cmudict.
         if not part_of_speech_list:
-            return JsonResponse(
-                {'error': f'"{word}" was not found in the Vietnamese dictionary. Please check the spelling.'},
-                status=404,
-            )
+            part_of_speech_list = [{
+                "name": "noun",
+                "senses": [{"sense_number": 1, "definition": ""}],
+                "idioms": [],
+            }]
 
         for_serialization = {}
         for_serialization['head_word'] = word
@@ -1755,12 +1758,17 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def update_part_of_speech(request, pk):
-    # Updates a PartOfSpeech's editable fields (video_url and/or pron_code).
+    # Updates a PartOfSpeech's editable fields (name, video_url, pron_code, etc.).
     try:
         pos = PartOfSpeech.objects.get(id=pk)
     except PartOfSpeech.DoesNotExist:
         return Response({"error": "Part of speech not found."}, status=404)
     changed = False
+    if 'name' in request.data:
+        name = (request.data.get('name') or '').strip()
+        if name:
+            pos.name = name
+            changed = True
     if 'video_url' in request.data:
         pos.video_url = request.data.get('video_url')
         changed = True
@@ -1783,6 +1791,7 @@ def update_part_of_speech(request, pk):
         pos.save()
     return Response({
         "id": pos.id,
+        "name": pos.name,
         "video_url": pos.video_url,
         "pron_code": pos.pron_code,
         "amevar_pron": pos.amevar_pron,

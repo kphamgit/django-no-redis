@@ -600,6 +600,23 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
     # print(f"[modify_arpabet] part_of_speech={part_of_speech!r} "
     #       f"syllable_count={syllable_count} word={word!r} phonemes={phonemes}")
 
+    # Rule: T-flapping / alveolar tap. A "T" becomes a "D" (-> Vietnamese "đ")
+    # when it sits between two vowel sounds AND the following vowel is unstressed:
+    #   - preceding phoneme is a vowel OR "R" (the r sound counts as a vowel here),
+    #   - following phoneme is an unstressed vowel (stress digit 0).
+    # e.g. water (AO1 T ER0) -> wa-der, party (R T IY0) -> par-dy.
+    # Runs first so it reads the original cmudict stress. When cmudict already
+    # spells a -tion/-tial "sh" as SH (nation = ...SH AH0 N), there is no T to
+    # touch, so that case is handled automatically.
+    for i in range(1, len(phonemes) - 1):
+        if phonemes[i] == "T":
+            prev = phonemes[i - 1]
+            nxt = phonemes[i + 1]
+            prev_is_vowel_sound = prev[-1:].isdigit() or prev == "R"
+            next_is_unstressed_vowel = nxt[-1:] in ("0", "2")  # stress 0 or secondary 2
+            if prev_is_vowel_sound and next_is_unstressed_vowel:
+                phonemes[i] = "D"
+
     # Rule: a 2-syllable "giới từ" (preposition), "phó từ" (adverb) or verb ->
     # first syllable's stress digit becomes 9, second syllable's becomes 0. Each
     # syllable's stress lives on its vowel (a code ending in a stress digit
@@ -655,6 +672,19 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
         for j in range(len(phonemes) - 1, -1, -1):
             if phonemes[j][-1:].isdigit():
                 phonemes[j] = phonemes[j][:-1] + "9"
+                break
+
+    # Rule: multi-syllable words ending in "-o" (potato, tomato) stress the
+    # penultimate syllable, so the final "o" is unstressed -> set its vowel's
+    # stress digit to 9 (cmudict marks it 2). Runs after T-flapping so the flap
+    # still sees the original stress-2 vowel. Guard: skip when the final vowel
+    # already has PRIMARY stress 1 (e.g. hello = ...OW1), since there the last
+    # syllable really is stressed.
+    if word and syllable_count and syllable_count > 1 and word.lower().endswith("o"):
+        for j in range(len(phonemes) - 1, -1, -1):
+            if phonemes[j][-1:].isdigit():
+                if phonemes[j][-1] != "1":
+                    phonemes[j] = phonemes[j][:-1] + "9"
                 break
 
     # print(f"[modify_arpabet] modified phonemes={phonemes}")
