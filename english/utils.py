@@ -170,6 +170,7 @@ def read_star_dict(word):
         # iterate thought entry and look for stars. If a star is found, create a new key named "pos" in the dictionary with the text after the star as the key 
         current_pos = None
         collect_line = True
+        in_idioms_section = False   # set before the loop so a stray content line can't read it unbound
         line_number = 0
         for line in entry.splitlines():
             # print(f"Processing line: {line}")
@@ -186,7 +187,7 @@ def read_star_dict(word):
                 entry_dict[word][part_of_speech] = {"senses": [], "idioms": []}  # make a new entry for pos in the dictionary,
                 current_pos = part_of_speech    # current part_of_speech (either noun, verb, etc.) will be used to determine which pos the following definitions and examples belong to in the dictionary
             # if line starts with "-", it is a definition, add it to the list of definitions for the current pos
-            elif line.startswith("-"):
+            elif line.startswith("-") and current_pos is not None:
                 #print(f" ************** Found definition for pos {current_pos}: {line}")
                 # add the definition to the list of definitions for the current pos in the dictionary
                 if (collect_line):  # only collect definition lines when collect_line is True and we are not in the idioms section
@@ -198,13 +199,13 @@ def read_star_dict(word):
                         current_idiom["translation"] = line[1:].strip()  # remove the leading "-" and add it as the translation of the current idiom
                         entry_dict[word][current_pos]["idioms"][-1] = current_idiom  # update the last idiom in the idioms list of the current pos in the dictionary with the new translation
                         
-            elif line.startswith("="):
+            elif line.startswith("=") and current_pos is not None:
                 if entry_dict[word][current_pos]["senses"]:  # only if there's at least one sense
                     if "examples" not in entry_dict[word][current_pos]["senses"][-1]:
                         entry_dict[word][current_pos]["senses"][-1]["examples"] = []
                     entry_dict[word][current_pos]["senses"][-1]["examples"].append(line[1:].strip())
                 
-            elif line.startswith("!"):  
+            elif line.startswith("!") and current_pos is not None:
                 # print(f" ^^^^^^^^^^^ Found IDIOM section: {line}")
                 in_idioms_section = True
                 idiom_dict = {"phrase": line[1:].strip()}
@@ -402,7 +403,7 @@ ARPABET_VOWELS_TO_VIETNAMESE = {
     "EH0": ["e"],"EH1": ["é"],"EH2": ["é"], "EH9": ["è"],
     "ER0": ["ơr"],"ER1": ["ớr"],"ER2": ["ớr"],"ER9": ["ờr"],
     "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
-    "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì"],
+    "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì", "ề"],
     "IX0": ["iz"],"IX1": ["íz"],"IX2": ["íz"],"IX9": ["ìz"],
     "IY0": ["i"],"IY1": ["í"],"IY2": ["í"], "IY9": ["ì"],
     "OW0": ["âu", "ơu"],"OW1": ["ấu", "ớu"],"OW2": ["ấu", "ớu"],"OW9": ["ầu", "ờu"],
@@ -582,7 +583,32 @@ def word_to_vietnamese(word, part_of_speech=None):
         return s
 
     alternatives = [_final_l_to_o(a) for a in alternatives]
+
+    # Drop any alternative containing an invalid Vietnamese syllable (as a middle
+    # syllable, "-xâ-"): these aren't real Vietnamese syllables, so that rendering
+    # is invalid. Keep the remaining (valid) ones; only fall back to the
+    # unfiltered list if this would remove them all. Add more as needed.
+    _invalid_middles = ("-lâ-", "-fâ-")
+    filtered = [a for a in alternatives if not any(bad in a for bad in _invalid_middles)]
+    alternatives = filtered or alternatives
+
     return list(dict.fromkeys(alternatives))
+
+
+# Noun/verb (and adjective/verb) heteronyms whose stress shifts with part of
+# speech: the NOUN/adjective stresses the 1st syllable, the VERB the 2nd (e.g.
+# CON-tent vs con-TENT, RE-cord vs re-CORD). cmudict stores only ONE
+# pronunciation, so modify_arpabet overrides the stress from part_of_speech.
+# Add more here as needed (all follow the noun-1st / verb-2nd pattern).
+HETERONYMS = {
+    "content", "contest", "contract", "contrast", "convert", "convict",
+    "conduct", "conflict", "console", "decrease", "increase", "insult",
+    "object", "permit", "present", "produce", "progress", "project",
+    "protest", "rebel", "record", "refund", "refuse", "reject", "subject",
+    "suspect", "digest", "export", "import", "perfect", "desert", "extract",
+    "torment", "transfer", "transport", "survey", "addict", "address",
+    "combat", "compound", "discount", "upset",
+}
 
 
 def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None):
@@ -633,6 +659,19 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
             adjusted.append(p)
         phonemes = adjusted
 
+    # Rule: heteronyms (see HETERONYMS) shift stress by part of speech, but
+    # cmudict has only one pronunciation. Override it: a VERB stresses the LAST
+    # vowel, a noun/adjective the FIRST; the primary-stressed vowel gets "1" and
+    # the others "0". Runs after the generic verb rule (overriding it) and before
+    # the suffix rules, so e.g. a noun's now-unstressed last vowel can still
+    # become "9". e.g. record -> noun RÉ-cord, verb re-CÓRD.
+    if word and word.lower() in HETERONYMS:
+        vowel_idxs = [k for k, p in enumerate(phonemes) if p[-1:].isdigit()]
+        if len(vowel_idxs) >= 2:
+            stressed = vowel_idxs[-1] if part_of_speech == "verb" else vowel_idxs[0]
+            for k in vowel_idxs:
+                phonemes[k] = phonemes[k][:-1] + ("1" if k == stressed else "0")
+
     # Rule: a word ending in ...AH0 L (e.g. lethal, mammal) -> the final AH0
     # becomes AO9. The last syllable is word-final, so this is just the last two
     # phonemes being ["AH0", "L"].
@@ -681,6 +720,30 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
     # already has PRIMARY stress 1 (e.g. hello = ...OW1), since there the last
     # syllable really is stressed.
     if word and syllable_count and syllable_count > 1 and word.lower().endswith("o"):
+        for j in range(len(phonemes) - 1, -1, -1):
+            if phonemes[j][-1:].isdigit():
+                if phonemes[j][-1] != "1":
+                    phonemes[j] = phonemes[j][:-1] + "9"
+                break
+
+    # Rule: multi-syllable words ending in -ence or -ent (sentence, different,
+    # president) -> the last syllable is unstressed -> set its vowel's stress
+    # digit to 9. Guard: skip when the final vowel already has PRIMARY stress 1
+    # (e.g. cement, event, percent), where the last syllable really is stressed.
+    if word and syllable_count and syllable_count > 1 and word.lower().endswith(("ence", "ent")):
+        for j in range(len(phonemes) - 1, -1, -1):
+            if phonemes[j][-1:].isdigit():
+                if phonemes[j][-1] != "1":
+                    phonemes[j] = phonemes[j][:-1] + "9"
+                break
+
+    # Rule: words ending in -cy, -ty, -phy, -gy, -al take stress on the
+    # antepenultimate (3rd-from-last) syllable, so the LAST syllable is unstressed
+    # -> set its vowel's stress digit to 9. Needs >= 3 syllables for an
+    # antepenult to exist (so 2-syllable words like city, duty, final are
+    # skipped -- and final/total, ending in AH0 L, are handled by the AH0 L rule).
+    # Guard: skip when the final vowel already has PRIMARY stress 1.
+    if word and syllable_count and syllable_count >= 3 and word.lower().endswith(("cy", "ty", "phy", "gy", "al")):
         for j in range(len(phonemes) - 1, -1, -1):
             if phonemes[j][-1:].isdigit():
                 if phonemes[j][-1] != "1":

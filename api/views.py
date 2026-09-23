@@ -485,6 +485,30 @@ def speak_realtime(request):
 
     return StreamingHttpResponse(stream_audio(), content_type="audio/mpeg")
 
+def translate_en_to_vi(text):
+    """Translate English text to Vietnamese with ChatGPT. Returns "" for empty
+    input, and "" (never raises) if the API call fails, so callers can include a
+    translation without risking the whole request."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a translator. Translate the user's "
+                 "English text into natural Vietnamese. Reply with only the Vietnamese "
+                 "translation — no quotes, no notes, no English."},
+                {"role": "user", "content": text},
+            ],
+            temperature=0.2,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        print("translate_en_to_vi failed:", e)
+        return ""
+
+
 @csrf_exempt
 def openai_transcription(request):
     if request.method == 'POST' and request.FILES.get('audio'):
@@ -495,7 +519,11 @@ def openai_transcription(request):
             language="en",  # force English transcription
         )
         print("Transcription result:", transcription.text)
-        return JsonResponse({'transcription': transcription.text})
+        # Also translate the transcribed English to Vietnamese in the same request.
+        return JsonResponse({
+            'transcription': transcription.text,
+            'translation': translate_en_to_vi(transcription.text),
+        })
     else:
         return JsonResponse({'error': 'No audio file provided'}, status=400)
 
@@ -546,9 +574,14 @@ def transcribe_and_save(request):
     except Exception as e:
         print("transcribe_and_save: transcription failed:", e)
         # Audio was still saved; report the URL without a transcript.
-        return JsonResponse({'transcription': '', 'audio_url': audio_url, 'error': 'Transcription failed'}, status=502)
+        return JsonResponse({'transcription': '', 'translation': '', 'audio_url': audio_url, 'error': 'Transcription failed'}, status=502)
 
-    return JsonResponse({'transcription': transcription.text, 'audio_url': audio_url})
+    # Also translate the transcribed English to Vietnamese in the same request.
+    return JsonResponse({
+        'transcription': transcription.text,
+        'translation': translate_en_to_vi(transcription.text),
+        'audio_url': audio_url,
+    })
 
 
 @csrf_exempt
