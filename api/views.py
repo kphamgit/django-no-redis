@@ -510,6 +510,35 @@ def translate_en_to_vi(text):
 
 
 @csrf_exempt
+def translate_auto(request):
+    """Auto-detect the input language and translate: Vietnamese -> English, anything else ->
+    Vietnamese. Body: {'text': ...}. Returns {'translation': ...}."""
+    try:
+        if request.content_type == 'application/json':
+            text = (json.loads(request.body).get('text') or '').strip()
+        else:
+            text = (request.POST.get('text') or '').strip()
+        if not text:
+            return JsonResponse({'translation': ''})
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content":
+                 "You are a translator between English and Vietnamese. Detect the language of the "
+                 "user's text: if it is Vietnamese, translate it into natural English; otherwise "
+                 "translate it into natural Vietnamese. Reply with ONLY the translation — no quotes, "
+                 "no labels, no notes."},
+                {"role": "user", "content": text},
+            ],
+            temperature=0.2,
+        )
+        return JsonResponse({'translation': (resp.choices[0].message.content or "").strip()})
+    except Exception as e:
+        print("translate_auto failed:", e)
+        return JsonResponse({'translation': '', 'error': str(e)}, status=502)
+
+
+@csrf_exempt
 def openai_transcription(request):
     if request.method == 'POST' and request.FILES.get('audio'):
         audio_file = request.FILES['audio']
