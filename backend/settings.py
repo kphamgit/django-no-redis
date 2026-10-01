@@ -52,8 +52,9 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 #print ALLOWED_HOSTS (which comes from .env) for debugging
 print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
-CORS_ALLOWED_ORIGINS =  config('CORS_ALLOWED_ORIGINS', cast=Csv())
-# ('CORS_ALLOWED_ORIGINS', cast=Csv())
+# NOTE: CORS_ALLOWED_ORIGINS is defined once, as a hardcoded list further below
+# (search "CORS_ALLOWED_ORIGINS = ["). It is NOT read from an env var, so adding
+# a domain means editing that list (and CSRF_TRUSTED_ORIGINS) here.
 
 # Application definition
 
@@ -209,13 +210,17 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Single source of truth for allowed CORS origins (NOT from an env var). To add a
+# domain, add its full origin here (with https://) AND to CSRF_TRUSTED_ORIGINS below.
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # Your frontend's origin
     "http://localhost:5175", 
     "http://localhost:5173",
     'https://phuyenenglish.com',
     'https://www.phuyenenglish.com',   # in HEROKU, need this to avoid error when connecting web socket with wss. Feb 4, 2026, kpham
-    "https://wwww.tienganhphuyen.com", 
+    'https://phuyenenglish.net',
+    'https://www.phuyenenglish.net',
+    "https://wwww.tienganhphuyen.com",
     "https://tienganhphuyen.com",
     "https://wwww.kevinphamenglish.com",
     "https://kevinphamenglish.com",
@@ -238,6 +243,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://ws-redis-server-b7141d12dbc0.herokuapp.com/',
     'https://phuyenenglish.com',
     'https://www.phuyenenglish.com',
+    'https://phuyenenglish.net',
+    'https://www.phuyenenglish.net',
     'https://tienganhphuyen.com',
     'https://www.tienganhphuyen.com',
     'https://kevinphamenglish.com',
