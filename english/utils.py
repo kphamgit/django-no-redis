@@ -568,6 +568,39 @@ def word_to_vietnamese(word, part_of_speech=None):
                 per_syllable[i] = [a[:-3] if a.endswith("(r)") else a for a in per_syllable[i]]
                 per_syllable[i + 1] = ["r" + a for a in per_syllable[i + 1]]
 
+    # Diphthong (AY/OY/EY/AW/OW) followed by a nasal, rendered as its own syllable:
+    #   - coda "N" ANYWHERE -> "ờn", splitting any following coda consonant(s) off
+    #     with a hyphen. e.g. fine -> fái-ờn, mind -> mái-ờn-d.
+    #   - "M" only at the END of the word -> "ờm". e.g. time -> tái-ờm, home -> hấu-ờm.
+    # The N must be a coda (not the onset of a following vowel), so "dining" and
+    # "timer" (M is an onset) are unaffected.
+    _diphthongs = {"AY", "OY", "EY", "AW", "OW"}
+    last_syl_index = len(regrouped) - 1
+    expanded = []
+    for i, syl in enumerate(regrouped):
+        split_at = None
+        literal = None
+        for j in range(len(syl) - 1):
+            if _base_code(syl[j]) not in _diphthongs:
+                continue
+            nxt = syl[j + 1]
+            after = syl[j + 2] if j + 2 < len(syl) else None
+            if nxt == "N" and (after is None or not after[-1:].isdigit()):
+                split_at, literal = j, "ờn"       # diphthong + coda N (anywhere)
+                break
+            if nxt == "M" and i == last_syl_index and j + 1 == len(syl) - 1:
+                split_at, literal = j, "ờm"       # diphthong + word-final M
+                break
+        if split_at is None:
+            expanded.append(per_syllable[i])
+        else:
+            expanded.append(arpabet_to_vietnamese(syl[:split_at + 1]))  # onset + diphthong
+            expanded.append([literal])                                  # N -> ần / M -> ờm
+            coda = syl[split_at + 2:]
+            if coda:
+                expanded.append(arpabet_to_vietnamese(coda))            # trailing consonant(s)
+    per_syllable = expanded
+
     alternatives = [
         "-".join(alts[idx] if idx < len(alts) else alts[0] for alts in per_syllable)
         for idx in (0, 1)
@@ -584,13 +617,25 @@ def word_to_vietnamese(word, part_of_speech=None):
 
     alternatives = [_final_l_to_o(a) for a in alternatives]
 
-    # Drop any alternative containing an invalid Vietnamese syllable (as a middle
-    # syllable, "-xâ-"): these aren't real Vietnamese syllables, so that rendering
-    # is invalid. Keep the remaining (valid) ones; only fall back to the
-    # unfiltered list if this would remove them all. Add more as needed.
-    _invalid_middles = ("-lâ-", "-fâ-")
-    filtered = [a for a in alternatives if not any(bad in a for bad in _invalid_middles)]
+    # Drop any alternative that has an OPEN syllable ending in "â" or its toned
+    # forms "ấ"/"ầ" (e.g. "â", "mâ", "kâ", "mấ", "mầ"): these don't exist in
+    # Vietnamese -- the â-vowel always needs a coda ("mân") or a glide
+    # ("mâu"/"mây"). A syllable is a segment between hyphens, so this catches the
+    # bad syllable at the start, middle, or end. Keep the valid alternatives;
+    # only fall back to the unfiltered list if all are invalid.
+    _open_a_endings = ("â", "ấ", "ầ")
+    def _has_open_a_syllable(rendering):
+        return any(syllable.endswith(_open_a_endings) for syllable in rendering.split("-"))
+    filtered = [a for a in alternatives if not _has_open_a_syllable(a)]
     alternatives = filtered or alternatives
+
+    # Word-initial "t" (not followed by "h") is aspirated in English -> show it as
+    # "t(h)", e.g. top -> t(h)óp, time -> t(h)ái-ờm. A "t" after another consonant
+    # ("stop") isn't word-initial, and "th" already has the h, so both are left as is.
+    alternatives = [
+        "t(h)" + a[1:] if a.startswith("t") and not a.startswith("th") else a
+        for a in alternatives
+    ]
 
     return list(dict.fromkeys(alternatives))
 
