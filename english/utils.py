@@ -637,32 +637,22 @@ def word_to_vietnamese(word, part_of_speech=None):
         for a in alternatives
     ]
 
+    # A word-final "sh" isn't a valid Vietnamese coda, so split it off with a
+    # hyphen: wash -> quó-sh, fish -> fí-sh. (A final "ch" IS a valid Vietnamese
+    # coda -- "ích", "ách" -- so it's left attached: teach -> t(h)ích.)
+    alternatives = [a[:-2] + "-sh" if a.endswith("sh") else a for a in alternatives]
+
     return list(dict.fromkeys(alternatives))
 
 
-# Noun/verb (and adjective/verb) heteronyms whose stress shifts with part of
-# speech: the NOUN/adjective stresses the 1st syllable, the VERB the 2nd (e.g.
-# CON-tent vs con-TENT, RE-cord vs re-CORD). cmudict stores only ONE
-# pronunciation, so modify_arpabet overrides the stress from part_of_speech.
-# Add more here as needed (all follow the noun-1st / verb-2nd pattern).
-HETERONYMS = {
-    "content", "contest", "contract", "contrast", "convert", "convict",
-    "conduct", "conflict", "console", "decrease", "increase", "insult",
-    "object", "permit", "present", "produce", "progress", "project",
-    "protest", "rebel", "record", "refund", "refuse", "reject", "subject",
-    "suspect", "digest", "export", "import", "perfect", "desert", "extract",
-    "torment", "transfer", "transport", "survey", "addict", "address",
-    "combat", "compound", "discount", "upset",
-}
-
-
 def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None):
-    """Adjust an ARPAbet phoneme sequence based on the word's part of speech,
-    its number of syllables, and its spelling, BEFORE it is converted to Vietnamese.
+    """Adjust an ARPAbet phoneme sequence based on the word's number of syllables
+    and its spelling, BEFORE it is converted to Vietnamese.
 
     Args:
         phonemes: list of ARPAbet codes, e.g. ["R", "IH0", "K", "AO1", "R", "D"].
-        part_of_speech: e.g. "noun", "verb" (heteronyms like record differ by POS).
+        part_of_speech: accepted for API compatibility but no longer used — words
+            whose stress differs by POS are hand-edited in the dictionary instead.
         syllable_count: number of syllables in the word.
         word: the spelled word, for suffix-based rules (e.g. -ic/-sion/-tion).
     Returns:
@@ -688,34 +678,10 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
             if prev_is_vowel_sound and next_is_unstressed_vowel:
                 phonemes[i] = "D"
 
-    # Rule: a 2-syllable "giới từ" (preposition), "phó từ" (adverb) or verb ->
-    # first syllable's stress digit becomes 9, second syllable's becomes 0. Each
-    # syllable's stress lives on its vowel (a code ending in a stress digit
-    # 0/1/2), so we rewrite the 1st vowel's digit to 9 and the 2nd vowel's to 0;
-    # consonants are left untouched.
-    # NB: read_star_dict renames "động từ" -> "verb" upstream, so we match "verb".
-    if part_of_speech in {"giới từ", "phó từ", "verb"} and syllable_count == 2:
-        adjusted = []
-        vowel_index = 0
-        for p in phonemes:
-            if p[-1].isdigit():
-                p = p[:-1] + ("9" if vowel_index == 0 else "0")
-                vowel_index += 1
-            adjusted.append(p)
-        phonemes = adjusted
-
-    # Rule: heteronyms (see HETERONYMS) shift stress by part of speech, but
-    # cmudict has only one pronunciation. Override it: a VERB stresses the LAST
-    # vowel, a noun/adjective the FIRST; the primary-stressed vowel gets "1" and
-    # the others "0". Runs after the generic verb rule (overriding it) and before
-    # the suffix rules, so e.g. a noun's now-unstressed last vowel can still
-    # become "9". e.g. record -> noun RÉ-cord, verb re-CÓRD.
-    if word and word.lower() in HETERONYMS:
-        vowel_idxs = [k for k, p in enumerate(phonemes) if p[-1:].isdigit()]
-        if len(vowel_idxs) >= 2:
-            stressed = vowel_idxs[-1] if part_of_speech == "verb" else vowel_idxs[0]
-            for k in vowel_idxs:
-                phonemes[k] = phonemes[k][:-1] + ("1" if k == stressed else "0")
+    # NOTE: part-of-speech-driven stress rules (the generic 2-syllable verb rule
+    # and the heteronym noun/verb stress override) were intentionally removed —
+    # the few words whose stress differs by POS are hand-edited in the dictionary
+    # instead. `part_of_speech` is still accepted for API compatibility.
 
     # Rule: a word ending in ...AH0 L (e.g. lethal, mammal) -> the final AH0
     # becomes AO9. The last syllable is word-final, so this is just the last two
@@ -794,6 +760,27 @@ def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None
                 if phonemes[j][-1] != "1":
                     phonemes[j] = phonemes[j][:-1] + "9"
                 break
+
+    # Rule: within a syllable, a vowel/diphthong directly before a coda "M", "N",
+    # or "L" is unstressed in this scheme -> change its primary stress 1 to 0.
+    # e.g. time -> T AY0 M, file -> F AY0 L, film -> F IH0 L M. "Within a syllable"
+    # means the M/N/L is a coda -- NOT the onset of a following vowel -- so it must
+    # not be immediately followed by a vowel; that spares "timer"/"funny" (M/N is
+    # an onset there). Only touches stress 1, leaving the 9-markers set above and
+    # secondary stress intact.
+    for i in range(len(phonemes) - 1):
+        if phonemes[i][-1:] == "1" and phonemes[i + 1] in ("M", "N", "L"):
+            after = phonemes[i + 2] if i + 2 < len(phonemes) else None
+            if after is None or not after[-1:].isdigit():   # coda, not an onset
+                phonemes[i] = phonemes[i][:-1] + "0"
+
+    # Rule: a stressed vowel/diphthong directly before an "ER" (tire, fire, liar)
+    # -> downgrade the vowel's stress 1 to 0 AND set the ER's stress to 9.
+    # e.g. tire T AY1 ER0 -> T AY0 ER9, fire F AY1 ER0 -> F AY0 ER9.
+    for i in range(len(phonemes) - 1):
+        if phonemes[i][-1:] == "1" and phonemes[i + 1].startswith("ER"):
+            phonemes[i] = phonemes[i][:-1] + "0"
+            phonemes[i + 1] = phonemes[i + 1][:-1] + "9"
 
     # print(f"[modify_arpabet] modified phonemes={phonemes}")
     return phonemes

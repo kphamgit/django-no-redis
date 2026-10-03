@@ -41,6 +41,7 @@ class Quiz(models.Model):
     quiz_number = models.IntegerField()
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="quizzes")
     video_url = models.CharField(null=True, blank=True)
+    reading = models.TextField(null=True, blank=True)  # rich-text/HTML: paragraphs and/or <img> pictures
     
     def __str__(self):
         return self.name
