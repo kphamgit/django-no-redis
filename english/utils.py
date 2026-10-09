@@ -303,6 +303,38 @@ def _get_cmudict():
     return _cmudict
 
 
+_moby_hyphenation = None
+
+def _get_moby_hyphenation():
+    """Lazily load + cache the Moby Hyphenation List (Grady Ward, public domain,
+    Project Gutenberg #3204): 187k words pre-syllabified by lexicographers, so we
+    look up letter-syllabification instead of guessing it. The data file
+    (english/data/mhyph.txt) is Latin-1 with syllables separated by byte 0xA5 and
+    literal hyphens kept as '-'. Returns {plain_lowercased_word: [variant, ...]}.
+    A word may list several hyphenations (noun/verb variants); all distinct ones
+    are kept, in file order.
+    """
+    global _moby_hyphenation
+    if _moby_hyphenation is None:
+        d = {}
+        path = os.path.join(os.path.dirname(__file__), "data", "mhyph.txt")
+        try:
+            with open(path, "rb") as fh:
+                for raw in fh:
+                    line = raw.decode("latin-1").rstrip("\r\n")
+                    if not line:
+                        continue
+                    key = line.replace("\xa5", "").lower()   # plain word (keeps literal '-')
+                    val = line.replace("\xa5", "-")          # "ta\xa5ble" -> "ta-ble"
+                    variants = d.setdefault(key, [])
+                    if val not in variants:                  # keep all distinct variants
+                        variants.append(val)
+        except FileNotFoundError:
+            pass
+        _moby_hyphenation = d
+    return _moby_hyphenation
+
+
 # Consonant clusters (ARPAbet) that are legal English syllable onsets. Used to
 # decide, for consonants sitting between two vowels, how many attach to the
 # following syllable's onset (maximal-onset principle) vs. the previous coda.
@@ -380,6 +412,108 @@ def syllabify(word):
     }
 
 
+_VOWEL_LETTERS = set("aeiouy")
+
+def _resyllabify_spelling(word, target_count):
+    """Re-split WORD's spelling into TARGET_COUNT syllables using vowel positions.
+
+    A best-effort letter-level syllabifier used to correct pyphen's hyphenation
+    when it disagrees with cmudict's (reliable) syllable count. Each maximal run
+    of vowel letters is treated as one syllable nucleus; the consonants between
+    two nuclei are split V-CV (single consonant joins the next syllable) or
+    VC-CV (a cluster keeps its first consonant). Returns the hyphenated string,
+    or None when the number of vowel groups != target_count (can't map cleanly).
+    """
+    lower = word.lower()
+    # Maximal runs of vowel letters -> one nucleus each.
+    groups, i, n = [], 0, len(lower)
+    while i < n:
+        if lower[i] in _VOWEL_LETTERS:
+            j = i
+            while j < n and lower[j] in _VOWEL_LETTERS:
+                j += 1
+            groups.append((i, j))
+            i = j
+        else:
+            i += 1
+    if len(groups) != target_count or target_count < 2:
+        return None
+    # A cut index (hyphen goes before it) within each inter-nucleus consonant run.
+    parts, prev = [], 0
+    for g in range(len(groups) - 1):
+        vend = groups[g][1]          # first consonant after this nucleus
+        run = groups[g + 1][0] - vend  # consonants before the next nucleus
+        cut = vend if run <= 1 else vend + 1  # V-CV vs VC-CV
+        parts.append(word[prev:cut])
+        prev = cut
+    parts.append(word[prev:])
+    return "-".join(parts)
+
+
+def _moby_or_fallback_variants(word):
+    """Return the hyphenation variant(s) for WORD as a list. Primary source is
+    the Moby Hyphenation List (lexicographer splits, e.g. ["ta-ble"], or
+    ["pres-ent", "pre-sent"]). For words not in Moby, a one-item list with the
+    pyphen form corrected against cmudict's syllable count (pyphen alone as a
+    last resort).
+    """
+    key = (word or "").strip().lower()
+    moby = _get_moby_hyphenation().get(key)
+    if moby:
+        return moby
+
+    pyphen_form = hyphenation(word)
+    syl = syllabify(word)
+    if not syl["found"] or not syl["syllable_count"]:
+        return [pyphen_form]
+    if pyphen_form.count("-") + 1 == syl["syllable_count"]:
+        return [pyphen_form]
+    return [_resyllabify_spelling(word, syl["syllable_count"]) or pyphen_form]
+
+
+def _first_syllable_closed(hyphenated):
+    """True if the first syllable ends in a consonant (closed), e.g. "pres-ent";
+    False if it ends in a vowel (open), e.g. "pre-sent"."""
+    first = hyphenated.split("-", 1)[0]
+    return bool(first) and first[-1].lower() not in _VOWEL_LETTERS
+
+
+def _ends_in_consonant_le(hyphenated):
+    """True if the word's last spelled syllable is a consonant + "le" (ble, ple,
+    cle, tle, dle, ...), as in "ta-ble", "ap-ple", "lit-tle", "ex-am-ple". Reads
+    the last syllable of the per-POS hyphenation (first variant if several joined
+    with " / ")."""
+    last = (hyphenated or "").split(" / ")[0].split("-")[-1].lower()
+    return len(last) >= 3 and last.endswith("le") and last[-3] not in _VOWEL_LETTERS
+
+
+def corrected_hyphenation(word):
+    """All distinct hyphenation variants for WORD, joined (e.g.
+    "pres-ent / pre-sent"). POS-agnostic -- see corrected_hyphenation_for_pos."""
+    return " / ".join(_moby_or_fallback_variants(word))
+
+
+def corrected_hyphenation_for_pos(word, part_of_speech=None):
+    """Hyphenation chosen for a specific POS. When a word has multiple Moby
+    variants, pick by the noun/verb stress pattern: a noun stresses (and closes)
+    the first syllable -> "pres-ent"; a verb opens it -> "pre-sent". A single
+    variant is returned as-is; any other POS (or no clear match) returns all
+    variants joined.
+    """
+    variants = _moby_or_fallback_variants(word)
+    if len(variants) == 1:
+        return variants[0]
+    if _is_noun(part_of_speech):
+        closed = [v for v in variants if _first_syllable_closed(v)]
+        if closed:
+            return closed[0]
+    elif _is_verb(part_of_speech):
+        open_first = [v for v in variants if not _first_syllable_closed(v)]
+        if open_first:
+            return open_first[0]
+    return " / ".join(variants)
+
+
 # ---------------------------------------------------------------------------
 # ARPAbet -> Vietnamese pronunciation mapping (experimental / in progress).
 # ---------------------------------------------------------------------------
@@ -391,21 +525,20 @@ def syllabify(word):
 ARPABET_VOWELS_TO_VIETNAMESE = {
     "AA0": ["o"], "AA1": ["ó"],"AA2": ["ó"],"AA9": ["ò"],
     "AE0": ["a"],"AE1": ["á"],"AE2": ["á"],"AE9": ["à"],
-    "AH0": ["ơ", "â"],
-    "AH1": ["ớ", "ấ"],
-    "AH2": ["ớ", "ấ"],
-    "AH9": ["ờ","ầ"],
-    "AO0": ["ô", "o"],"AO1": ["ố", "ó"],"AO2": ["ố", "ó"],"AO9": ["ồ", "ò"],
+    "AF0": ["ê"],"AF1": ["ế"],"AF2": ["ế"],"AF9": ["ề"], "AF8": ["ệ"],
+    "AH0": ["ơ", "â"],"AH1": ["ớ", "ấ"], "AH2": ["ớ", "ấ"],"AH9": ["ờ","ầ"],
+    "AK0": ["o"],"AK1": ["ó"],"AK2": ["ó"],"AK9": ["ò"],
+    "AO0": ["ô"],"AO1": ["ố"],"AO2": ["ố"],"AO9": ["ồ"],
     "AW0": ["ao"],"AW1": ["áo"],"AW2": ["áo"], "AW9": ["ào"],
     "AX0": ["ơ"],"AX1": ["ờ"],"AX2": ["ờ"], "AX9": ["ờ"],
-    "AXR0": ["ơ"],"AXR1": ["ờ"],"AXR2": ["ờ"],
+    "AXR0":["ơ"],"AXR1": ["ờ"],"AXR2": ["ờ"],
     "AY0": ["ai"],"AY1": ["ái"],"AY2": ["ái"],"AY9": ["ài"],
     "EH0": ["e"],"EH1": ["é"],"EH2": ["é"], "EH9": ["è"],
     "ER0": ["ơr"],"ER1": ["ớr"],"ER2": ["ớr"],"ER9": ["ờr"],
     "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
     "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì", "ề"],
     "IX0": ["iz"],"IX1": ["íz"],"IX2": ["íz"],"IX9": ["ìz"],
-    "IY0": ["i"],"IY1": ["í"],"IY2": ["í"], "IY9": ["ì"],
+    "IY0": ["i:"],"IY1": ["í:"],"IY2": ["í:"], "IY9": ["ì:"],
     "OW0": ["âu", "ơu"],"OW1": ["ấu", "ớu"],"OW2": ["ấu", "ớu"],"OW9": ["ầu", "ờu"],
     "OY0": ["ôi"],"OY1": ["ối",],"OY2": ["ối"],"OY9": ["ồi"],
     "UH0": ["u"],"UH1": ["ú"],"UH2": ["ú"], "UH9": ["ù"],
@@ -463,8 +596,11 @@ _CONTEXT_RULES = [
 ]
 
 
-def arpabet_to_vietnamese(phonemes):
+def arpabet_to_vietnamese(phonemes, next_phoneme=None):
     """Render a run of ARPAbet phonemes as its distinct Vietnamese alternatives.
+    `next_phoneme` is the ARPAbet phoneme that follows this span in the word (or
+    None if the span ends the word); it controls whether a rhotic r is
+    parenthesized (see below).
 
     Each phoneme maps to a list of Vietnamese candidates (e.g. "AH1" -> ["ớ","ấ"]),
     but contextual rules in _CONTEXT_RULES can override a span first (e.g. IH+L
@@ -475,10 +611,13 @@ def arpabet_to_vietnamese(phonemes):
     """
     # Build output "slots": one candidate-list per output position. A context
     # rule may override (and consume several phonemes); otherwise use the table.
-    # We also parenthesize a syllable-final (coda) rhotic r, which is optionally
-    # pronounced: a standalone coda R -> "(r)", and the r baked into a rhotic ER
-    # vowel -> "ơ(r)". "Coda" = after the syllable's vowel; an onset R (before the
-    # vowel, e.g. "tr" or [R IY0]) keeps a plain "r".
+    # A rhotic r is parenthesized as "optionally pronounced" when it is NOT
+    # immediately followed by a vowel -- i.e. a coda r at the end of the word
+    # (car -> "ko(r)", here -> ...) OR before another consonant (cart -> "ká(r)t",
+    # learn -> "lơ(r)n"). A rhotic r FOLLOWED BY A VOWEL is a plain, linking "r"
+    # (av-er-age -> "vơr", ve-ry -> "r"); an onset R (before its own vowel) is also
+    # a plain "r". The "following phoneme" is the next one in this span, or
+    # `next_phoneme` when the r is the span's last phoneme.
     slots = []
     i = 0
     n = len(phonemes)
@@ -495,11 +634,16 @@ def arpabet_to_vietnamese(phonemes):
                 break
         else:
             p = phonemes[i]
+            following = phonemes[i + 1] if i + 1 < n else next_phoneme
+            # Optional (parenthesized) r unless a vowel sound follows (= linking r).
+            r_optional = following is None or _vowel_stress(following) is None
             if p == "R" and seen_vowel:
-                slots.append(["(r)"])                       # optional coda R
+                slots.append(["(r)"] if r_optional else ["r"])   # coda R
             elif p.startswith("ER"):
                 cands = ARPABET_VOWELS_TO_VIETNAMESE.get(p, [p.lower()])
-                slots.append([c[:-1] + "(r)" if c.endswith("r") else c for c in cands])
+                if r_optional:
+                    cands = [c[:-1] + "(r)" if c.endswith("r") else c for c in cands]
+                slots.append(cands)                          # else keep plain "ơr"
                 seen_vowel = True
             else:
                 # Vowel table first; then the consonant exceptions table (e.g.
@@ -517,15 +661,19 @@ def arpabet_to_vietnamese(phonemes):
     def render(idx):
         return "".join(c[idx] if idx < len(c) else c[0] for c in slots)
 
+    # Fixed spelling fix-ups on the rendered syllable (e.g. the reduced "-age"/
+    # "-edge" ending "ệjh" is written "ệt-j(ờ)").
+    renders = [r.replace("ệjh", "ệt-j(ờ)") for r in (render(0), render(1))]
+
     # dict.fromkeys de-duplicates while preserving order, collapsing the two
     # renderings to one when there is no genuine second alternative.
-    return list(dict.fromkeys([render(0), render(1)]))
+    return list(dict.fromkeys(renders))
 
 
-def word_to_vietnamese(word, part_of_speech=None):
+def word_to_vietnamese(word, part_of_speech=None, steps=None):
     """Convert an English word to its Vietnamese pronunciation alternatives, with
     syllables joined by "-". Syllabifies the word, runs the phonemes through
-    modify_arpabet (POS- and syllable-count-aware adjustments), converts each
+    modify_arpabet_stress (POS- and syllable-count-aware adjustments), converts each
     syllable via arpabet_to_vietnamese, then builds up to two word-level
     alternatives (each syllable's 1st vs 2nd rendering) and de-duplicates.
     Returns [] if the word isn't in cmudict. e.g. "about" -> ["ơ-<B> áo <T>",
@@ -533,14 +681,47 @@ def word_to_vietnamese(word, part_of_speech=None):
 
     Single source of truth used by both the populate view and the serializer, so
     the returned value and the stored viet_pron_code stay in the same format.
+
+    If `steps` is a list, a detailed step-by-step trace of the whole pipeline is
+    appended to it -- each entry is {"title", "value", "detail"} -- for the
+    teacher-facing "pipeline" view.
     """
+    def _trace(title, value, detail):
+        if steps is not None:
+            steps.append({"title": title, "value": value, "detail": detail})
+
+    def _disp(psyll):
+        # First-alternative assembly of a per-syllable candidate list, for display.
+        return "-".join((c[0] if c else "") for c in psyll)
+
     result = syllabify(word)
     if not result["found"] or not result["syllables"]:
         return []
 
     syllables = result["syllables"]
-    # POS/syllable-count-aware adjustment of the raw phonemes before conversion.
-    phonemes = modify_arpabet(result["phonemes"], part_of_speech, result["syllable_count"], word)
+    _trace("cmudict ARPABET", " ".join(result["phonemes"]),
+           "Raw ARPABET phonemes from cmudict (the first / most common pronunciation). "
+           "Each vowel carries a stress digit: 0 = unstressed, 1 = primary, 2 = secondary.")
+
+    # Per-POS corrected (Moby) hyphenation, shared by both passes so they can key
+    # off the spelled syllables (e.g. the "-le" ending).
+    hyphenated = corrected_hyphenation_for_pos(word, part_of_speech)
+    _trace("Hyphenation (per-POS)", hyphenated,
+           "Letter syllabification from the Moby list, chosen for this part of speech. The "
+           "vowel/stress rules use it to spot endings like \"-le\" and to position a linking r.")
+
+    # Vowel-quality adjustments FIRST, then the stress pass LAST (so stress digits
+    # are assigned after the vowel codes are settled).
+    phonemes = modify_arpabet_vowels(result["phonemes"], part_of_speech, result["syllable_count"], word, hyphenated)
+    _trace("After vowel rules (modify_arpabet_vowels)", " ".join(phonemes),
+           "Vowel-QUALITY changes only, no stress digits: a consonant+\"-le\" ending's vowel "
+           "becomes custom \"AO\"; a reduced \"-age\"/\"-edge\" word's vowel becomes custom \"AF\".")
+
+    phonemes = modify_arpabet_stress(phonemes, part_of_speech, result["syllable_count"], word, hyphenated)
+    _trace("After stress rules (modify_arpabet_stress)", " ".join(phonemes),
+           "Stress DIGITS: the 2-syllable 1/9 rule (stressed vowel -> 1, reduced vowel -> 9) with a "
+           "noun/verb homograph override; a \"-le\" vowel -> 9; a \"-age\"/\"-edge\" vowel -> custom 8; "
+           "single-syllable normalization.")
 
     # Re-split the (possibly modified) phonemes onto the original syllable
     # boundaries when the total length is unchanged (the common case); if a rule
@@ -554,19 +735,40 @@ def word_to_vietnamese(word, part_of_speech=None):
     else:
         regrouped = [phonemes]
 
-    per_syllable = [arpabet_to_vietnamese(s) for s in regrouped]
+    _trace("Syllable grouping", " | ".join(" ".join(s) for s in regrouped),
+           "The (modified) phonemes regrouped onto the word's syllable boundaries; each group "
+           "is rendered to Vietnamese on its own.")
 
-    # Double-r words (spelling contains "rr"): the r-colored ER vowel bakes its
-    # /r/ onto the end of its syllable, which arpabet_to_vietnamese renders as an
-    # optional "ơ(r)". For these words the r is actually pronounced as the ONSET
-    # of the next syllable ("kớ-rơnt"), so when a syllable ends in an ER* phoneme
-    # and a syllable follows, drop the optional "(r)" and prepend a plain "r" to
-    # every rendering of the next syllable.
-    if "rr" in word.lower():
-        for i in range(len(regrouped) - 1):
-            if regrouped[i] and regrouped[i][-1].startswith("ER"):
-                per_syllable[i] = [a[:-3] if a.endswith("(r)") else a for a in per_syllable[i]]
-                per_syllable[i + 1] = ["r" + a for a in per_syllable[i + 1]]
+    # Pass each syllable the first phoneme of the NEXT syllable (None for the last)
+    # so a rhotic r is parenthesized only when not followed by a vowel.
+    per_syllable = [
+        arpabet_to_vietnamese(s, next_phoneme=(regrouped[idx + 1][0] if idx + 1 < len(regrouped) else None))
+        for idx, s in enumerate(regrouped)
+    ]
+    _trace("Per-syllable Vietnamese (arpabet_to_vietnamese)", _disp(per_syllable),
+           "Each syllable mapped to Vietnamese via the ARPABET->Vietnamese table plus context "
+           "rules. A rhotic r is written \"(r)\" (optional) unless a vowel follows it; the reduced "
+           "\"-age\"/\"-edge\" ending \"ệjh\" is written \"ệt-j(ờ)\".")
+
+    # Linking r: an ER vowel immediately before another vowel pronounces its /r/
+    # as the ONSET of the next syllable. arpabet_to_vietnamese already rendered
+    # that (vowel-followed) r as a PLAIN trailing "r" (e.g. "vơr"); move it off
+    # this syllable and prepend it to the next, so av-er-age "á-vơr-ệjh" becomes
+    # "á-vơ-rệjh" and current "kơr..." becomes "kơ-rơnt". A coda r shown "(r)"
+    # (before a consonant or at word end) is NOT moved.
+    _before_r = _disp(per_syllable)
+    for i in range(len(regrouped) - 1):
+        if (regrouped[i] and regrouped[i][-1].startswith("ER")
+                and any(a.endswith("r") and not a.endswith("(r)") for a in per_syllable[i])):
+            per_syllable[i] = [
+                a[:-1] if (a.endswith("r") and not a.endswith("(r)")) else a
+                for a in per_syllable[i]
+            ]
+            per_syllable[i + 1] = ["r" + a for a in per_syllable[i + 1]]
+    if _disp(per_syllable) != _before_r:
+        _trace("Linking r moved", _disp(per_syllable),
+               "An r between two vowels is pronounced as the onset of the next syllable, so the "
+               "plain trailing r is moved there, e.g. \"vơr\" -> \"vơ-r\".")
 
     # Diphthong (AY/OY/EY/AW/OW) followed by a nasal, rendered as its own syllable:
     #   - coda "N" ANYWHERE -> "ờn", splitting any following coda consonant(s) off
@@ -599,53 +801,250 @@ def word_to_vietnamese(word, part_of_speech=None):
             coda = syl[split_at + 2:]
             if coda:
                 expanded.append(arpabet_to_vietnamese(coda))            # trailing consonant(s)
+    if _disp(expanded) != _disp(per_syllable):
+        _trace("Diphthong + nasal split", _disp(expanded),
+               "A diphthong (AY/OY/EY/AW/OW) before a coda N (or word-final M) is split into its "
+               "own syllable \"ờn\"/\"ờm\", e.g. fine -> fái-ờn, time -> tái-ờm.")
     per_syllable = expanded
 
     alternatives = [
         "-".join(alts[idx] if idx < len(alts) else alts[0] for alts in per_syllable)
         for idx in (0, 1)
     ]
+    _trace("Assembled alternatives", " / ".join(dict.fromkeys(alternatives)),
+           "Syllables joined with \"-\" into up to two alternatives (each syllable's 1st vs 2nd "
+           "candidate), then de-duplicated.")
 
-    # Post-processing on the formed pronunciation: a word-final "l" (dark L) is
-    # pronounced "ồ" in Vietnamese, set off with a hyphen, e.g. "ball" -> "bố-ồ"
-    # -- UNLESS the character before it is already "ồ" (e.g. "mammal" -> "má-mồl"
-    # stays as is).
-    def _final_l_to_o(s):
-        if s.endswith("l") and not s[:-1].endswith("ồ"):
-            return s[:-1] + "-ồ"
-        return s
+    # Double "pp"/"bb" in the spelling that cmudict collapsed to a single P/B
+    # (apple -> [AE1 P AH0 L]) but the hyphenation keeps on both sides (ap-ple).
+    # Add the missing consonant back as a coda on the syllable BEFORE the one that
+    # starts with it, so the rendering matches the hyphenation: apple "á-pồl" ->
+    # "áp-pồl". Vietnamese has no final "-b", so a "b" coda is written "p"
+    # (the following onset stays "b"): nibble "ní-bồl" -> "níp-bồl". (Only "p"/"b";
+    # e.g. "gg" is left as is.)
+    def _restore_double_consonant(rendering):
+        for double, cons in (("pp", "p"), ("bb", "b")):
+            if double not in word.lower():
+                continue
+            coda = "p" if cons == "b" else cons   # no final "-b" in Vietnamese
+            parts = rendering.split("-")
+            for k in range(1, len(parts)):
+                if parts[k].startswith(cons) and not parts[k - 1].endswith(coda):
+                    parts[k - 1] = parts[k - 1] + coda
+                    break
+            rendering = "-".join(parts)
+        return rendering
 
-    alternatives = [_final_l_to_o(a) for a in alternatives]
+    _before_dbl = list(alternatives)
+    alternatives = [_restore_double_consonant(a) for a in alternatives]
+    if alternatives != _before_dbl:
+        _trace("Double consonant restored", " / ".join(dict.fromkeys(alternatives)),
+               "A spelled \"pp\"/\"bb\" that cmudict collapsed to one is added back as a coda to "
+               "match the hyphenation (apple -> áp-pồl); a \"b\" coda is written \"p\" since "
+               "Vietnamese has no final \"-b\" (nibble -> níp-bồl).")
 
-    # Drop any alternative that has an OPEN syllable ending in "â" or its toned
-    # forms "ấ"/"ầ" (e.g. "â", "mâ", "kâ", "mấ", "mầ"): these don't exist in
-    # Vietnamese -- the â-vowel always needs a coda ("mân") or a glide
-    # ("mâu"/"mây"). A syllable is a segment between hyphens, so this catches the
-    # bad syllable at the start, middle, or end. Keep the valid alternatives;
-    # only fall back to the unfiltered list if all are invalid.
-    _open_a_endings = ("â", "ấ", "ầ")
-    def _has_open_a_syllable(rendering):
-        return any(syllable.endswith(_open_a_endings) for syllable in rendering.split("-"))
-    filtered = [a for a in alternatives if not _has_open_a_syllable(a)]
-    alternatives = filtered or alternatives
+    # --- Post-processing on the formed pronunciation: TEMPORARILY DISABLED ---
+    # (commented out on request; re-enable by uncommenting the block below.)
 
-    # Word-initial "t" (not followed by "h") is aspirated in English -> show it as
-    # "t(h)", e.g. top -> t(h)óp, time -> t(h)ái-ờm. A "t" after another consonant
-    # ("stop") isn't word-initial, and "th" already has the h, so both are left as is.
-    alternatives = [
-        "t(h)" + a[1:] if a.startswith("t") and not a.startswith("th") else a
-        for a in alternatives
-    ]
+    # # a word-final "l" (dark L) is pronounced "ồ" in Vietnamese, set off with a
+    # # hyphen, e.g. "ball" -> "bố-ồ" -- UNLESS the char before it is already "ồ"
+    # # (e.g. "mammal" -> "má-mồl" stays as is).
+    # def _final_l_to_o(s):
+    #     if s.endswith("l") and not s[:-1].endswith("ồ"):
+    #         return s[:-1] + "-ồ"
+    #     return s
+    #
+    # alternatives = [_final_l_to_o(a) for a in alternatives]
+    #
+    # # Drop any alternative that has an OPEN syllable ending in "â"/"ấ"/"ầ": these
+    # # don't exist in Vietnamese -- the â-vowel always needs a coda or a glide.
+    # # Keep valid alternatives; fall back to the unfiltered list if all are invalid.
+    # _open_a_endings = ("â", "ấ", "ầ")
+    # def _has_open_a_syllable(rendering):
+    #     return any(syllable.endswith(_open_a_endings) for syllable in rendering.split("-"))
+    # filtered = [a for a in alternatives if not _has_open_a_syllable(a)]
+    # alternatives = filtered or alternatives
+    #
+    # # Word-initial "t" (not followed by "h") is aspirated -> "t(h)", e.g.
+    # # top -> t(h)óp. A "t" after a consonant ("stop") or "th" is left as is.
+    # alternatives = [
+    #     "t(h)" + a[1:] if a.startswith("t") and not a.startswith("th") else a
+    #     for a in alternatives
+    # ]
+    #
+    # # A word-final "sh" isn't a valid Vietnamese coda, so split it off with a
+    # # hyphen: wash -> quó-sh. (A final "ch" IS valid, so teach -> t(h)ích stays.)
+    # alternatives = [a[:-2] + "-sh" if a.endswith("sh") else a for a in alternatives]
+    #
+    # # A word-final coda "đ" (D), "g" (G) or "s" (S/ss) isn't a valid Vietnamese
+    # # coda, so set it off with a hyphen: had -> há-đ, dog -> đố-g, kiss -> ki-s.
+    # _final_coda_split = ("đ", "g", "s")
+    # alternatives = [
+    #     a[:-1] + "-" + a[-1]
+    #     if a.endswith(_final_coda_split) and not a[:-1].endswith("-") else a
+    #     for a in alternatives
+    # ]
 
-    # A word-final "sh" isn't a valid Vietnamese coda, so split it off with a
-    # hyphen: wash -> quó-sh, fish -> fí-sh. (A final "ch" IS a valid Vietnamese
-    # coda -- "ích", "ách" -- so it's left attached: teach -> t(h)ích.)
-    alternatives = [a[:-2] + "-sh" if a.endswith("sh") else a for a in alternatives]
+    final = list(dict.fromkeys(alternatives))
+    _trace("Final viet_pron_code", " / ".join(final),
+           "The de-duplicated alternatives, stored as the viet_pron_code.")
+    return final
 
-    return list(dict.fromkeys(alternatives))
+def _is_noun(part_of_speech):
+    """True if the POS label denotes a noun -- English "noun" or the Vietnamese
+    "danh từ" the stardict source uses. Exact/prefix match so "pronoun" / "đại từ"
+    (pronoun) don't count."""
+    p = (part_of_speech or "").strip().lower()
+    return p == "noun" or p.startswith("danh từ")
 
 
-def modify_arpabet(phonemes, part_of_speech=None, syllable_count=None, word=None):
+def _is_verb(part_of_speech):
+    """True if the POS label denotes a verb -- English "verb" or the Vietnamese
+    "động từ" the stardict source uses."""
+    p = (part_of_speech or "").strip().lower()
+    return p == "verb" or p.startswith("động từ")
+
+
+# Words whose final "-age"/"-edge" is the reduced /ɪdʒ/ sound (like "message",
+# "knowledge"), NOT the /eɪdʒ/ of "age", "page", "cage". Used by
+# modify_arpabet_vowels and modify_arpabet_stress to special-case that final
+# syllable's vowel/stress.
+AGE_EDGE_REDUCED_WORDS = {
+    "acknowledge", "advantage", "assemblage", "average", "baggage", "beverage", "cabbage",
+    "cottage", "courage", "coverage", "damage", "disadvantage", "dosage",
+    "drainage", "encourage", "garbage", "hostage", "image", "knowledge",
+    "language", "lineage", "luggage", "manage", "message", "miscarriage",
+    "mortgage", "package", "parentage", "passage", "percentage", "pilgrimage",
+    "postage", "privilege", "salvage", "shortage", "spillage", "slippage",
+    "storage", "tutelage", "usage", "village", "vintage", "voyage",
+}
+
+
+def modify_arpabet_stress(phonemes, part_of_speech=None, syllable_count=None, word=None, hyphenated=None):
+    if hyphenated is None and word is not None:
+        hyphenated = corrected_hyphenation_for_pos(word, part_of_speech)
+    if syllable_count == 2:
+        # Two-syllable words: mark the stressed vowel "1" and the unstressed vowel
+        # with the custom code "9" (defined in ARPABET_VOWELS_TO_VIETNAMESE).
+        # Which syllable is stressed comes from cmudict by default (reliable for a
+        # word's normal pronunciation). EXCEPTION: a POS-dependent homograph -- a
+        # word Moby lists with more than one hyphenation (present, record, desert)
+        # -- has its stress overridden from the per-POS hyphenation: a closed first
+        # syllable ("pres-ent") stresses syllable 1, an open one ("pre-sent")
+        # stresses syllable 2. This is the only case where cmudict's single default
+        # is wrong for one of the parts of speech.
+        nuclei = [i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None]
+        if len(nuclei) == 2:
+            # Default: whichever nucleus cmudict marks with primary stress "1".
+            stressed = next((idx for idx, i in enumerate(nuclei, 1)
+                             if _vowel_stress(phonemes[i]) == "1"), 1)
+            # Override for homographs (multiple Moby variants + a noun/verb POS).
+            key = (word or "").strip().lower()
+            variants = _get_moby_hyphenation().get(key) if key else None
+            if variants and len(variants) > 1 and (_is_noun(part_of_speech) or _is_verb(part_of_speech)):
+                stressed = 1 if _first_syllable_closed(hyphenated or "") else 2
+            # --- The "1/9" rule ---------------------------------------------
+            # Having decided WHICH syllable is stressed (above), stamp the two
+            # vowels' stress digits to a binary scheme: the stressed vowel gets
+            # "1", the other (reduced) vowel gets the custom "9". Consonants are
+            # untouched, phonemes are neither added nor removed, and the stress
+            # POSITION isn't changed here -- we only rewrite the two digits.
+            # cmudict's original 0/1/2 digits are replaced: stressed -> "1",
+            # unstressed -> "9" (e.g. "R IY0 M UW1 V" -> "R IY9 M UW1 V"). The
+            # "9" is a custom code whose ARPABET_VOWELS_TO_VIETNAMESE entries give
+            # the reduced syllable a falling (huyền) tone in Vietnamese. This runs
+            # for every two-syllable word with no exceptions -- a "-le" vowel that
+            # modify_arpabet_vowels changed to "AO" simply becomes "AO9" here.
+            phonemes = list(phonemes)
+            for idx, i in enumerate(nuclei, 1):
+                phonemes[i] = _base_code(phonemes[i]) + ("1" if idx == stressed else "9")
+    if syllable_count == 1:
+        # A one-syllable word has a single vowel; its stress is meaningless, so
+        # normalize the vowel's stress digit to 0 (e.g. "BEE" B IY1 -> B IY0).
+        # EXCEPTION: keep the stress only for a closed syllable whose coda is
+        # EXACTLY ONE consonant from the keep-set -- "CAT" K AE1 T, "BAD" B AE1 D,
+        # "CAP" K AE1 P, "KISS" K IH1 S. A multi-consonant coda ("BAND" B AE1 N D,
+        # "BANK" B AE1 NG K, "STRENGTH" ...) still normalizes to 0.
+        _KEEP_STRESS_FINAL = ("T", "D", "P", "G", "S", "Z")
+        # Coda = the consonants after the single vowel (nucleus).
+        _vowel_idx = next((i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None), None)
+        _coda = phonemes[_vowel_idx + 1:] if _vowel_idx is not None else []
+        keep_stress = len(_coda) == 1 and _base_code(_coda[0]) in _KEEP_STRESS_FINAL
+        if not keep_stress:
+            phonemes = [
+                _base_code(p) + "0" if _vowel_stress(p) is not None else p
+                for p in phonemes
+            ]
+
+    # Consonant + "-le" ending ("ta-ble", "ap-ple", "ex-am-ple", "hor-ri-ble"):
+    # the final "-le" syllable is reduced, so apply the 1/9 rule to it -- stamp its
+    # vowel with stress "9" -- REGARDLESS of the word's syllable count. For a
+    # 2-syllable word the branch above already did this; this extends it to 3+-
+    # syllable words (whose earlier syllables are still left to cmudict for now).
+    # syllable_count is available here so the digit can be fine-tuned by length
+    # later if needed (e.g. a different reduction for very long words).
+    if _ends_in_consonant_le(hyphenated):
+        nuclei = [i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None]
+        if nuclei:
+            le_digit = "9"   # reduced final "-le" syllable
+            # Hook: branch on syllable_count here to fine-tune le_digit when needed.
+            phonemes = list(phonemes)
+            phonemes[nuclei[-1]] = _base_code(phonemes[nuclei[-1]]) + le_digit
+
+    # Reduced "-age"/"-edge" word (AGE_EDGE_REDUCED_WORDS, e.g. "message",
+    # "knowledge"): the final syllable gets stress digit "8" -- overriding the "9"
+    # the 1/9 rule put there -- regardless of syllable count. (modify_arpabet_vowels
+    # already set its vowel code to "AF", so it becomes "AF8".)
+    if (word or "").strip().lower() in AGE_EDGE_REDUCED_WORDS:
+        nuclei = [i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None]
+        if nuclei:
+            phonemes = list(phonemes)
+            phonemes[nuclei[-1]] = _base_code(phonemes[nuclei[-1]]) + "8"
+
+    return phonemes
+
+
+def modify_arpabet_vowels(phonemes, part_of_speech=None, syllable_count=None, word=None, hyphenated=None):
+    """Vowel-QUALITY ARPAbet adjustments (runs BEFORE modify_arpabet_stress).
+    Changes vowel base codes only -- it never sets stress digits; that is
+    modify_arpabet_stress's job, which runs afterwards. `hyphenated` is the
+    per-POS corrected (Moby) hyphenation, e.g. "pres-ent", so rules can key off
+    the spelled syllables.
+
+    Rule -- consonant + "-le" final syllable: when the word's last spelled
+    syllable is a consonant followed by "le" (ble, ple, cle, tle, dle, ...), as in
+    "ta-ble", "ap-ple", "lit-tle", "ex-am-ple", that syllable's vowel takes the
+    base code "AO" (keeping its existing digit for now, e.g. "AH0" -> "AO0"). The
+    later modify_arpabet_stress pass applies the 1/9 rule with no exceptions, so
+    this unstressed "-le" syllable ends up "AO9" (a falling-tone "ồ").
+
+    Rule -- reduced "-age"/"-edge" word (AGE_EDGE_REDUCED_WORDS, e.g. "message",
+    "knowledge"): the final syllable's vowel takes the base code "AF" (keeping its
+    digit; modify_arpabet_stress then stamps the digit "8", giving "AF8").
+    """
+    if hyphenated is None and word is not None:
+        hyphenated = corrected_hyphenation_for_pos(word, part_of_speech)
+
+    nuclei = [i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None]
+    if _ends_in_consonant_le(hyphenated):
+        # Change the LAST vowel nucleus (the "-le" syllable's vowel) to AO,
+        # preserving its stress digit (strict split: no digit changes here).
+        if nuclei:
+            phonemes = list(phonemes)
+            i = nuclei[-1]
+            phonemes[i] = "AO" + _vowel_stress(phonemes[i])
+    elif (word or "").strip().lower() in AGE_EDGE_REDUCED_WORDS:
+        # Reduced "-age"/"-edge" (/ɪdʒ/): the LAST vowel nucleus takes base code
+        # "AF", preserving its digit (the stress pass sets it to 8).
+        if nuclei:
+            phonemes = list(phonemes)
+            i = nuclei[-1]
+            phonemes[i] = "AF" + _vowel_stress(phonemes[i])
+
+    return phonemes
+
+
+def modify_arpabet_saved(phonemes, part_of_speech=None, syllable_count=None, word=None):
     """Adjust an ARPAbet phoneme sequence based on the word's number of syllables
     and its spelling, BEFORE it is converted to Vietnamese.
 

@@ -538,6 +538,224 @@ def translate_auto(request):
         return JsonResponse({'translation': '', 'error': str(e)}, status=502)
 
 
+# Output language for the grammar-check explanation: code -> (language name, status labels).
+# The quoted English words ("wrong"/"fix") always stay English; only "reason" is translated.
+_GRAMMAR_LANGUAGES = {
+    'vi': ('Vietnamese', 'ĐÚNG', 'SAI'),
+    'en': ('English', 'CORRECT', 'INCORRECT'),
+}
+
+# Google AI Studio (Gemini) model used for grammar checking. gemini-2.5-flash is closed to
+# new API keys; Google points new users to the 3.x Flash line. 3.8-flash is verified working.
+GEMINI_GRAMMAR_MODEL = "gemini-3.8-flash"
+_gemini_client = None
+
+def _get_gemini_client():
+    """Lazily create and cache the Gemini client, so a missing GEMINI_API_KEY only
+    errors when Gemini is actually used (not at import time / for OpenAI calls)."""
+    global _gemini_client
+    if _gemini_client is None:
+        from google import genai
+        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _gemini_client
+
+@csrf_exempt
+def grammar_check(request):
+    """Check an English sentence for grammar errors, optionally scoped to a single
+    cue, and explain in the requested language. Body (JSON or form):
+      {'sentence': str, 'cue': str (optional), 'language': 'vi'|'en' (optional),
+       'provider': 'openai'|'gemini' (optional, default 'openai')}
+    - 'cue' narrows the check, e.g. "be-verb", "articles", "verb tense".
+      Omit it (or pass "" / "all") to check general grammar.
+    - 'language' is the language of the explanation; defaults to Vietnamese.
+    - 'provider' picks the AI backend: OpenAI (ChatGPT) or Google Gemini.
+    Returns {'status': 'correct'|'incorrect', 'wrong': '', 'fix': '', 'reason': '',
+             'provider': ...}. 'wrong'/'fix' quote the English words; 'reason' is in
+    the requested language."""
+    try:
+        if request.content_type == 'application/json':
+            body = json.loads(request.body or '{}')
+        else:
+            body = request.POST
+        sentence = (body.get('sentence') or '').strip()
+        cue = (body.get('cue') or '').strip()
+        language = (body.get('language') or 'vi').strip().lower()
+        provider = (body.get('provider') or 'openai').strip().lower()
+
+        if not sentence:
+            return JsonResponse({'status': '', 'wrong': '', 'fix': '', 'reason': '', 'provider': provider})
+
+        lang_name, _ok_label, _bad_label = _GRAMMAR_LANGUAGES.get(
+            language, _GRAMMAR_LANGUAGES['vi']
+        )
+
+        # Scope line: either a single cue, or general grammar.
+        if cue and cue.lower() not in ('all', 'general', 'any'):
+            scope = (
+                f"Check ONLY the {cue} in the student's English sentence. "
+                f"Ignore every other kind of error — if the only problems are "
+                f"outside the {cue}, treat the sentence as correct."
+            )
+        else:
+            scope = "Check the student's English sentence for grammar errors."
+
+        system = (
+            f"You are an English grammar teacher explaining to Vietnamese learners. {scope} "
+            f"Respond as a JSON object with exactly these keys: "
+            f'"status" (either "correct" or "incorrect"), '
+            f'"wrong" (the incorrect English word or phrase, or "" if correct), '
+            f'"fix" (the corrected English word or phrase, or "" if correct), and '
+            f'"reason" (a clear, specific explanation of at most 120 words). '
+            f'In "reason", state exactly what is wrong (or, if correct, why it is '
+            f"correct), name the grammar rule involved, explain why the correction "
+            f"applies, and give one short example sentence that illustrates the rule. "
+            f"Be specific and unambiguous, not vague. "
+            f'Write "reason" in {lang_name}, but keep any quoted English words in English. '
+            f'Keep "wrong" and "fix" in English. '
+            f'If the sentence is correct, set "status" to "correct", leave "wrong" and '
+            f'"fix" as "", and still give the "reason" (at most 120 words) '
+            f"explaining why it is grammatically correct."
+        )
+
+        if provider == 'gemini':
+            # Gemini takes the instructions as system_instruction and returns JSON
+            # when asked via response_mime_type. Same prompt -> same JSON shape.
+            from google.genai import types
+            gclient = _get_gemini_client()
+            resp = gclient.models.generate_content(
+                model=GEMINI_GRAMMAR_MODEL,
+                contents=sentence,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0,
+                    response_mime_type="application/json",
+                ),
+            )
+            raw = resp.text or '{}'
+        else:
+            provider = 'openai'
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": sentence},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            raw = resp.choices[0].message.content or '{}'
+
+        data = json.loads(raw)
+        return JsonResponse({
+            'status': data.get('status', ''),
+            'wrong': data.get('wrong', ''),
+            'fix': data.get('fix', ''),
+            'reason': data.get('reason', ''),
+            'provider': provider,
+        })
+    except Exception as e:
+        print("grammar_check failed:", e)
+        return JsonResponse(
+            {'status': '', 'wrong': '', 'fix': '', 'reason': '', 'provider': provider, 'error': str(e)},
+            status=502,
+        )
+
+
+@csrf_exempt
+def grammar_fix(request):
+    """Rewrite a (possibly poorly formed) English sentence into a fully correct,
+    natural version, and explain the changes in Vietnamese. Unlike grammar_check
+    (which flags a single error), this returns the WHOLE corrected sentence — meant
+    for cleaning up a student's transcribed spoken sentence. Body (JSON or form):
+      {'sentence': str, 'cue': str (optional), 'provider': 'gemini'|'openai' (optional)}
+    - 'cue' scopes what to fix, e.g. "grammar and word usage". Omit / "" / "all"
+      fixes every kind of error.
+    - 'provider' defaults to 'gemini' (this feature's purpose), 'openai' also works.
+    Returns {'original': ..., 'corrected': ..., 'changed': bool, 'explanation': ...
+             (Vietnamese), 'provider': ...}. If already correct, 'corrected' equals
+    'original' and 'changed' is false."""
+    provider = 'gemini'
+    try:
+        if request.content_type == 'application/json':
+            body = json.loads(request.body or '{}')
+        else:
+            body = request.POST
+        sentence = (body.get('sentence') or '').strip()
+        cue = (body.get('cue') or '').strip()
+        provider = (body.get('provider') or 'gemini').strip().lower()
+
+        if not sentence:
+            return JsonResponse({'original': '', 'corrected': '', 'changed': False,
+                                 'explanation': '', 'provider': provider})
+
+        # Scope line: fix only the cued area, or everything.
+        if cue and cue.lower() not in ('all', 'general', 'any'):
+            scope = (
+                f"Correct ONLY the {cue} in the sentence; leave anything outside "
+                f"the {cue} unchanged, even if it seems wrong."
+            )
+        else:
+            scope = "Correct every kind of grammar, word-usage, and word-order error."
+
+        system = (
+            f"You are an English teacher helping Vietnamese learners. The student's "
+            f"sentence may be poorly formed or awkward (it comes from speech). "
+            f"Rewrite it into one fully correct, natural English sentence that keeps "
+            f"the student's original meaning. {scope} Do not add new ideas or change "
+            f"the meaning. Respond as a JSON object with exactly these keys: "
+            f'"corrected" (the full corrected English sentence), '
+            f'"changed" (true if you changed anything, false if the sentence was '
+            f'already correct), and "explanation" (in Vietnamese, at most 120 words, '
+            f"briefly explaining the main corrections and why; keep any quoted English "
+            f"words in English). If the sentence is already correct, set \"corrected\" "
+            f'to the original sentence, "changed" to false, and briefly say in '
+            f'"explanation" that it is already correct.'
+        )
+
+        if provider == 'openai':
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": sentence},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            raw = resp.choices[0].message.content or '{}'
+        else:
+            provider = 'gemini'
+            from google.genai import types
+            gclient = _get_gemini_client()
+            resp = gclient.models.generate_content(
+                model=GEMINI_GRAMMAR_MODEL,
+                contents=sentence,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0,
+                    response_mime_type="application/json",
+                ),
+            )
+            raw = resp.text or '{}'
+
+        data = json.loads(raw)
+        corrected = data.get('corrected', '') or sentence
+        return JsonResponse({
+            'original': sentence,
+            'corrected': corrected,
+            'changed': bool(data.get('changed', corrected.strip() != sentence.strip())),
+            'explanation': data.get('explanation', ''),
+            'provider': provider,
+        })
+    except Exception as e:
+        print("grammar_fix failed:", e)
+        return JsonResponse(
+            {'original': '', 'corrected': '', 'changed': False, 'explanation': '',
+             'provider': provider, 'error': str(e)},
+            status=502,
+        )
+
+
 @csrf_exempt
 def openai_transcription(request):
     if request.method == 'POST' and request.FILES.get('audio'):

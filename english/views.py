@@ -12,7 +12,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet_stress, modify_arpabet_vowels, corrected_hyphenation, corrected_hyphenation_for_pos
 
 
 import boto3
@@ -1364,9 +1364,16 @@ def populate_viet_dictionary(request):
         # speech, so the teacher sees exactly what produced its viet_pron_code
         # (e.g. the 2-syllable verb rule turning IH2..AO1 into IH9..AO0).
         for _pos in client_data.get('part_of_speeches', []):
-            _pos['arpabet_modified'] = modify_arpabet(
+            _after_vowels = modify_arpabet_vowels(
                 list(_arpabet_original), _pos.get('name'), _syl["syllable_count"], word
             )
+            _pos['arpabet_after_vowels'] = list(_after_vowels)
+            _pos['arpabet_modified'] = modify_arpabet_stress(
+                _after_vowels, _pos.get('name'), _syl["syllable_count"], word
+            )
+            _pipeline = []
+            word_to_vietnamese(word, _pos.get('name'), steps=_pipeline)
+            _pos['pipeline'] = _pipeline
 
         return JsonResponse({
             'status': 'Vietnamese dictionary populated successfully.',
@@ -1436,10 +1443,30 @@ def read_dictionary(request):
                 # ARPAbet, so the teacher can inspect the pronunciation pipeline.
                 _syl = syllabify(entry.get('head_word', ''))
                 entry['arpabet_original'] = _syl['phonemes']
+                # Entry level: pyphen's original hyphenation (POS-independent).
+                _head = entry.get('head_word', '')
+                entry['hyphenated'] = hyphenation(_head)
                 for pos in entry.get('part_of_speeches', []):
-                    pos['arpabet_modified'] = modify_arpabet(
+                    # Pipeline steps, exposed for the teacher: cmudict (arpabet_original)
+                    # -> after vowel rules (arpabet_after_vowels) -> after stress rules
+                    # (arpabet_modified) -> Vietnamese (viet_pron_code).
+                    _after_vowels = modify_arpabet_vowels(
                         list(_syl['phonemes']), pos.get('name'), _syl['syllable_count'], entry.get('head_word', '')
                     )
+                    pos['arpabet_after_vowels'] = list(_after_vowels)
+                    pos['arpabet_modified'] = modify_arpabet_stress(
+                        _after_vowels, pos.get('name'), _syl['syllable_count'], entry.get('head_word', '')
+                    )
+                    # Corrected (Moby) hyphenation chosen for THIS part of speech:
+                    # noun/verb homographs get the stress-matched variant, e.g.
+                    # present -> "pres-ent" (noun) vs "pre-sent" (verb).
+                    pos['hyphenated_corrected'] = corrected_hyphenation_for_pos(_head, pos.get('name'))
+                    # Full step-by-step pipeline (cmudict -> vowels -> stress ->
+                    # per-syllable render -> post-processing -> viet_pron_code) for
+                    # the teacher's "pipeline" modal.
+                    _pipeline = []
+                    word_to_vietnamese(_head, pos.get('name'), steps=_pipeline)
+                    pos['pipeline'] = _pipeline
                     for sense in pos.get('senses', []):
                         card_id = card_by_sense.get(sense['id'])
                         sense['card_id'] = card_id
