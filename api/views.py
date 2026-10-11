@@ -497,8 +497,10 @@ def translate_en_to_vi(text):
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a translator. Translate the user's "
-                 "English text into natural Vietnamese. Reply with only the Vietnamese "
-                 "translation — no quotes, no notes, no English."},
+                 "English text into natural Vietnamese. Recognize idioms and figurative "
+                 "expressions and translate the intended meaning, not word-for-word; use the "
+                 "natural Vietnamese equivalent (e.g. \"He is chicken\" -> \"Anh ấy nhát gan\"). "
+                 "Reply with only the Vietnamese translation — no quotes, no notes, no English."},
                 {"role": "user", "content": text},
             ],
             temperature=0.2,
@@ -526,8 +528,10 @@ def translate_auto(request):
                 {"role": "system", "content":
                  "You are a translator between English and Vietnamese. Detect the language of the "
                  "user's text: if it is Vietnamese, translate it into natural English; otherwise "
-                 "translate it into natural Vietnamese. Reply with ONLY the translation — no quotes, "
-                 "no labels, no notes."},
+                 "translate it into natural Vietnamese. Recognize idioms and figurative expressions "
+                 "and translate the intended meaning, not word-for-word; use the natural equivalent "
+                 "in the target language (e.g. \"He is chicken\" -> \"Anh ấy nhát gan\"). "
+                 "Reply with ONLY the translation — no quotes, no labels, no notes."},
                 {"role": "user", "content": text},
             ],
             temperature=0.2,
