@@ -61,6 +61,7 @@ print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 INSTALLED_APPS = [
     'api.apps.ApiConfig',
     'english.apps.EnglishConfig',
+    'pron_api.apps.PronApiConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

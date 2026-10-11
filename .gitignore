@@ -2,3 +2,5 @@ db.sqlite3
 *.pyc
 __pycache__/
 .env
+# Google Cloud service-account credentials (secret — never commit)
+google_tts_service_account.json

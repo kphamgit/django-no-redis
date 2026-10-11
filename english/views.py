@@ -12,7 +12,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet_stress, modify_arpabet_vowels, corrected_hyphenation, corrected_hyphenation_for_pos
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet_stress, modify_arpabet_quality, corrected_hyphenation, corrected_hyphenation_for_pos
 
 
 import boto3
@@ -22,13 +22,14 @@ from django.conf import settings
 
 from django.views.decorators.csrf import csrf_exempt
 
+import os
 import json
 
 # Create your views here.
    
 #  VIEWS
 
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.views.decorators.csrf import get_token
 
 class CategoryCreateView(generics.CreateAPIView):
@@ -1364,7 +1365,7 @@ def populate_viet_dictionary(request):
         # speech, so the teacher sees exactly what produced its viet_pron_code
         # (e.g. the 2-syllable verb rule turning IH2..AO1 into IH9..AO0).
         for _pos in client_data.get('part_of_speeches', []):
-            _after_vowels = modify_arpabet_vowels(
+            _after_vowels = modify_arpabet_quality(
                 list(_arpabet_original), _pos.get('name'), _syl["syllable_count"], word
             )
             _pos['arpabet_after_vowels'] = list(_after_vowels)
@@ -1450,7 +1451,7 @@ def read_dictionary(request):
                     # Pipeline steps, exposed for the teacher: cmudict (arpabet_original)
                     # -> after vowel rules (arpabet_after_vowels) -> after stress rules
                     # (arpabet_modified) -> Vietnamese (viet_pron_code).
-                    _after_vowels = modify_arpabet_vowels(
+                    _after_vowels = modify_arpabet_quality(
                         list(_syl['phonemes']), pos.get('name'), _syl['syllable_count'], entry.get('head_word', '')
                     )
                     pos['arpabet_after_vowels'] = list(_after_vowels)
@@ -1851,3 +1852,85 @@ def quiz_location(request, quiz_id):
         return Response({"location": location})
     except Quiz.DoesNotExist:
         return Response({"error": f"Quiz with id {quiz_id} not found."}, status=404)
+
+# Default voice for the TTS test endpoint. Neural2 voices are deterministic
+# (same input -> same audio, unlike the generative Chirp 3 HD voices), which is
+# what we want for consistent, cacheable pronunciation. Speed is controlled via
+# the AudioConfig speaking_rate (0.25-4.0, 1.0 = normal).
+GOOGLE_TTS_DEFAULT_VOICE = "en-US-Neural2-D"
+
+
+def _google_tts_client():
+    """Build a Text-to-Speech client. On Heroku there's no credentials FILE, so if
+    GOOGLE_TTS_CREDENTIALS_JSON (the service-account JSON contents) is set, build
+    from that; otherwise fall back to Application Default Credentials, i.e. the
+    GOOGLE_APPLICATION_CREDENTIALS file path used locally."""
+    from google.cloud import texttospeech
+    creds_json = os.getenv("GOOGLE_TTS_CREDENTIALS_JSON")
+    if creds_json:
+        from google.oauth2 import service_account
+        info = json.loads(creds_json)
+        creds = service_account.Credentials.from_service_account_info(info)
+        return texttospeech.TextToSpeechClient(credentials=creds)
+    return texttospeech.TextToSpeechClient()
+
+
+@csrf_exempt
+def google_tts(request):
+    """Test endpoint for Google Cloud Text-to-Speech using a (deterministic)
+    Neural2 voice. Synthesizes `text` to MP3 and returns the audio
+    (Content-Type: audio/mpeg). Params (query string or JSON/form body):
+      text  -- what to speak (defaults to "average"). If it starts with "<speak"
+               it is sent as SSML (so you can use <prosody>, <break>, <phoneme>,
+               <emphasis>, ...); otherwise it is sent as plain text.
+      rate  -- speaking rate 0.25-4.0, 1.0 = normal (speed control)
+      voice -- a Google voice name (defaults to GOOGLE_TTS_DEFAULT_VOICE)
+    Returns JSON {error: ...} with HTTP 502 on failure."""
+    if request.content_type == "application/json":
+        try:
+            body = json.loads(request.body or "{}")
+        except ValueError:
+            body = {}
+    else:
+        body = request.POST
+
+    def _param(name, default=""):
+        return (body.get(name) or request.GET.get(name) or default)
+
+    text = (_param("text", "average")).strip()
+    voice_name = (_param("voice", GOOGLE_TTS_DEFAULT_VOICE)).strip() or GOOGLE_TTS_DEFAULT_VOICE
+    try:
+        rate = float(_param("rate", "1.0"))
+    except (TypeError, ValueError):
+        rate = 1.0
+    rate = max(0.25, min(4.0, rate))   # clamp to Google's allowed range
+
+    if not text:
+        return JsonResponse({"error": "No text provided."}, status=400)
+
+    # Auto-detect SSML: input beginning with "<speak" is treated as SSML so the
+    # markup (prosody/break/phoneme/emphasis) is interpreted, not read aloud.
+    is_ssml = text.lstrip().lower().startswith("<speak")
+
+    try:
+        from google.cloud import texttospeech
+        client = _google_tts_client()
+        synthesis_input = (
+            texttospeech.SynthesisInput(ssml=text) if is_ssml
+            else texttospeech.SynthesisInput(text=text)
+        )
+        resp = client.synthesize_speech(
+            input=synthesis_input,
+            voice=texttospeech.VoiceSelectionParams(
+                language_code="en-US",
+                name=voice_name,
+            ),
+            audio_config=texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=rate,
+            ),
+        )
+        return HttpResponse(resp.audio_content, content_type="audio/mpeg")
+    except Exception as e:
+        print("google_tts failed:", e)
+        return JsonResponse({"error": str(e)}, status=502)

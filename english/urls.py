@@ -84,6 +84,7 @@ urlpatterns = [
     path("read-dictionary/", views.read_dictionary, name="read-dictionary"),
     path("viet-dictionary/words/", views.list_viet_dictionary_words, name="viet-dictionary-words"),
     path("tokenize-text/", views.tokenize_text, name="tokenize-text"),
+    path("google_tts/", views.google_tts, name="google-tts"),
     # populate-longman-dictionary
     path("delete-dictionary-entry/", views.delete_dictionary_entry, name="delete-dictionary-entry"),
     path("populate-longman-dictionary/", views.populate_longman_dictionary, name="populate-longman-dictionary"),
