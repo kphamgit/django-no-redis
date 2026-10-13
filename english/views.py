@@ -12,7 +12,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 
-from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, word_to_vietnamese, modify_arpabet_stress, modify_arpabet_quality, corrected_hyphenation, corrected_hyphenation_for_pos
+from .utils import read_star_dict, hyphenation, scrape_longman_url, synthesize_azure_audio, get_s3_audio_url, syllabify, respell_in_vietnamese, modify_arpabet_stress, modify_arpabet_quality, corrected_hyphenation, corrected_hyphenation_for_pos
 
 
 import boto3
@@ -1317,7 +1317,7 @@ def populate_viet_dictionary(request):
         #       f"count={_syl['syllable_count']} syllables={[' '.join(s) for s in _syl['syllables']]}")
 
         # Same helper the serializer uses, so this matches the stored viet_pron_code exactly.
-        _viet = word_to_vietnamese(word)
+        _viet = respell_in_vietnamese(word)
         # print(f"[arpabet->vietnamese TEST] word={word!r} vietnamese={_viet}")
 
         # Debug aid: the raw ARPAbet phonemes (POS-independent, from cmudict).
@@ -1373,7 +1373,7 @@ def populate_viet_dictionary(request):
                 _after_vowels, _pos.get('name'), _syl["syllable_count"], word
             )
             _pipeline = []
-            word_to_vietnamese(word, _pos.get('name'), steps=_pipeline)
+            respell_in_vietnamese(word, _pos.get('name'), steps=_pipeline)
             _pos['pipeline'] = _pipeline
 
         return JsonResponse({
@@ -1466,7 +1466,7 @@ def read_dictionary(request):
                     # per-syllable render -> post-processing -> viet_pron_code) for
                     # the teacher's "pipeline" modal.
                     _pipeline = []
-                    word_to_vietnamese(_head, pos.get('name'), steps=_pipeline)
+                    respell_in_vietnamese(_head, pos.get('name'), steps=_pipeline)
                     pos['pipeline'] = _pipeline
                     for sense in pos.get('senses', []):
                         card_id = card_by_sense.get(sense['id'])

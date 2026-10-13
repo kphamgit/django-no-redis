@@ -1,7 +1,7 @@
 """Backfill PartOfSpeech.viet_pron_code for dictionary entries created before the
 value was auto-generated on creation.
 
-Uses the SAME helper the serializer uses -- word_to_vietnamese(head_word,
+Uses the SAME helper the serializer uses -- respell_in_vietnamese(head_word,
 part_of_speech=pos.name) -- so POS-specific rules apply and the result matches
 what a freshly-created entry would get. Only rows with an empty viet_pron_code
 are touched (so hand-edited values are never clobbered), unless --overwrite is
@@ -19,7 +19,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from api.models import PartOfSpeech
-from english.utils import word_to_vietnamese
+from english.utils import respell_in_vietnamese
 
 VIET_DICT_SOURCE = "ho-ngoc-duc-stardict"
 
@@ -57,7 +57,7 @@ class Command(BaseCommand):
         updated = skipped = 0
         for pos in qs:
             head_word = pos.dict_entry.head_word
-            viet = word_to_vietnamese(head_word, part_of_speech=pos.name)
+            viet = respell_in_vietnamese(head_word, part_of_speech=pos.name)
             if not viet:
                 skipped += 1
                 self.stdout.write(f"  skip (not in cmudict): {head_word!r} [{pos.name}]")

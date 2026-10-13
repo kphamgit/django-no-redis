@@ -542,7 +542,7 @@ ARPABET_VOWELS_TO_VIETNAMESE = {
     "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
     "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì", "ề"],
     "IX0": ["iz"],"IX1": ["íz"],"IX2": ["íz"],"IX9": ["ìz"],
-    "IY0": ["i:"],"IY1": ["í:"],"IY2": ["í:"], "IY9": ["ì:"],
+    "IY0": ["i"],"IY1": ["í"],"IY2": ["í"], "IY9": ["ì:"],
     "OW0": ["âu", "ơu"],"OW1": ["ấu", "ớu"],"OW2": ["ấu", "ớu"],"OW9": ["ầu", "ờu"],
     "OY0": ["ôi"],"OY1": ["ối",],"OY2": ["ối"],"OY9": ["ồi"],
     "UH0": ["u"],"UH1": ["ú"],"UH2": ["ú"], "UH9": ["ù"],
@@ -674,7 +674,7 @@ def arpabet_to_vietnamese(phonemes, next_phoneme=None):
     return list(dict.fromkeys(renders))
 
 
-def word_to_vietnamese(word, part_of_speech=None, steps=None):
+def respell_in_vietnamese(word, part_of_speech=None, steps=None):
     """Convert an English word to its Vietnamese pronunciation alternatives, with
     syllables joined by "-". Syllabifies the word, runs the phonemes through
     modify_arpabet_stress (POS- and syllable-count-aware adjustments), converts each
@@ -762,6 +762,7 @@ def word_to_vietnamese(word, part_of_speech=None, steps=None):
     # "á-vơ-rệjh" and current "kơr..." becomes "kơ-rơnt". A coda r shown "(r)"
     # (before a consonant or at word end) is NOT moved.
     _before_r = _disp(per_syllable)
+    linked_r_targets = set()  # syllable indices that received a moved-in onset "r"
     for i in range(len(regrouped) - 1):
         if (regrouped[i] and regrouped[i][-1].startswith("ER")
                 and any(a.endswith("r") and not a.endswith("(r)") for a in per_syllable[i])):
@@ -770,6 +771,7 @@ def word_to_vietnamese(word, part_of_speech=None, steps=None):
                 for a in per_syllable[i]
             ]
             per_syllable[i + 1] = ["r" + a for a in per_syllable[i + 1]]
+            linked_r_targets.add(i + 1)
     if _disp(per_syllable) != _before_r:
         _trace("Linking r moved", _disp(per_syllable),
                "An r between two vowels is pronounced as the onset of the next syllable, so the "
@@ -801,7 +803,13 @@ def word_to_vietnamese(word, part_of_speech=None, steps=None):
         if split_at is None:
             expanded.append(per_syllable[i])
         else:
-            expanded.append(arpabet_to_vietnamese(syl[:split_at + 1]))  # onset + diphthong
+            onset = arpabet_to_vietnamese(syl[:split_at + 1])           # onset + diphthong
+            # If a linking r was moved onto this syllable's onset (e.g. around
+            # "ờ-raonđ"), re-add it -- re-rendering from phonemes here would
+            # otherwise drop it, giving "ờ-ao-ờn-đ".
+            if i in linked_r_targets:
+                onset = ["r" + c for c in onset]
+            expanded.append(onset)
             expanded.append([literal])                                  # N -> ần / M -> ờm
             coda = syl[split_at + 2:]
             if coda:
@@ -887,6 +895,31 @@ def word_to_vietnamese(word, part_of_speech=None, steps=None):
                "(a coda l, e.g. \"ồl\") is written as an optional \"(l)\" -- like the optional "
                "coda r \"(r)\" -- giving table -> táy-bồ(l).")
 
+    # A coda "v" -- a "v" NOT followed by a vowel (word end, a hyphen, or a
+    # consonant) -- is an optionally pronounced coda, written "(v)" (like coda
+    # "(l)"/"(r)"). This is the English "v + silent e" case: have -> ha(v),
+    # move -> mu(v), movement -> mú(v)-mờn-t, lovely -> lớ(v)-lì:. An onset v
+    # (followed by a vowel) stays plain: oven "ớ-vờn", level "lé-vồ(l)".
+    def _coda_v_to_parens(rendering):
+        out = []
+        for i, ch in enumerate(rendering):
+            if ch == "v":
+                nxt = rendering[i + 1] if i + 1 < len(rendering) else ""
+                base = unicodedata.normalize("NFD", nxt)[:1].lower() if nxt else ""
+                if base not in ("a", "e", "i", "o", "u", "y"):
+                    out.append("(v)")
+                    continue
+            out.append(ch)
+        return "".join(out)
+
+    _before_coda_v = list(alternatives)
+    alternatives = [_coda_v_to_parens(a) for a in alternatives]
+    if alternatives != _before_coda_v:
+        _trace("Coda v -> (v)", " / ".join(dict.fromkeys(alternatives)),
+               "A \"v\" not followed by a vowel (the English \"v + silent e\" case) is an "
+               "optional coda, written \"(v)\" -- have -> ha(v), movement -> mú(v)-mờn-t. "
+               "An onset v (before a vowel) stays plain (oven -> ớ-vờn).")
+
     # Drop any alternative that has an OPEN syllable ending in "â"/"ấ"/"ầ": these
     # don't exist in Vietnamese -- the â-vowel always needs a coda or a glide.
     # Keep valid alternatives; fall back to the unfiltered list if all are invalid.
@@ -967,6 +1000,79 @@ def word_to_vietnamese(word, part_of_speech=None, steps=None):
                "A word-final \"đ\" (D), \"g\" (G) or \"s\" (S/ss) isn't a valid Vietnamese "
                "coda, so it's set off with a hyphen (had -> há-đ, dog -> đố-g, kiss -> ki-s).")
 
+    # An "ớ"/"ấ" vowel directly before a split coda "-s" takes an added "t" coda:
+    # "kớ-s" -> "kớt-s", "kấ-s" -> "kất-s".
+    _before_ts = list(alternatives)
+    alternatives = [a.replace("kớ-s", "kớt-s").replace("kấ-s", "kất-s") for a in alternatives]
+    if alternatives != _before_ts:
+        _trace("Insert t before coda s", " / ".join(dict.fromkeys(alternatives)),
+               "\"kớ-s\" becomes \"kớt-s\" and \"kấ-s\" becomes \"kất-s\": the ớ/ấ vowel takes "
+               "an added \"t\" coda before the split coda \"s\".")
+
+    # EXPERIMENTAL (added last so it's easy to remove): a WORD-FINAL coda "t"/"p"
+    # that sits directly after a vowel is marked for its released final stop,
+    # branching on the nucleus:
+    #   - monophthong (one vowel letter) -> REPEAT the stop:  bất -> bất-t, bóp -> bóp-p
+    #   - diphthong (two+ vowel letters) -> SPLIT the stop:   báot -> báo-t
+    # Only the LAST syllable is considered, so a t/p ending a non-final syllable is
+    # left alone (stoppage, average, discuss). A stop after a consonant (a cluster
+    # like "st" in "post") is also left untouched.
+    def _is_vowel_char(ch):
+        return unicodedata.normalize("NFD", ch)[:1].lower() in ("a", "e", "i", "o", "u", "y")
+
+    def _final_stop_rule(rendering):
+        parts = rendering.split("-")
+        p = parts[-1]
+        if len(p) >= 2 and p[-1] in ("t", "p") and _is_vowel_char(p[-2]):
+            # length of the trailing vowel run (the nucleus before the coda)
+            run = 0
+            for ch in reversed(p[:-1]):
+                if _is_vowel_char(ch):
+                    run += 1
+                else:
+                    break
+            parts[-1] = p[:-1] + "-" + p[-1] if run >= 2 else p + "-" + p[-1]
+        return "-".join(parts)
+
+    _before_stop = list(alternatives)
+    alternatives = [_final_stop_rule(a) for a in alternatives]
+    if alternatives != _before_stop:
+        _trace("Final stop (t/p) marked", " / ".join(dict.fromkeys(alternatives)),
+               "A coda \"t\"/\"p\" right after a vowel is marked: repeated after a monophthong "
+               "(bất -> bất-t, bóp -> bóp-p) or split off after a diphthong (báot -> báo-t). "
+               "A stop after a consonant (cluster, e.g. \"post\") is left as is.")
+
+    # Split a coda "t" off an "ờn"/"ần"/"ền" + t sequence with a hyphen:
+    # "ờnt" -> "ờn-t", "ầnt" -> "ần-t", "ềnt" -> "ền-t" (e.g. current -> k(h)ớ-rờn-t).
+    _before_nt = list(alternatives)
+    alternatives = [
+        a.replace("ờnt", "ờn-t").replace("ầnt", "ần-t").replace("ềnt", "ền-t")
+        for a in alternatives
+    ]
+    if alternatives != _before_nt:
+        _trace("Split nt (ờn/ần/ền + t)", " / ".join(dict.fromkeys(alternatives)),
+               "A coda \"t\" after \"ờn\"/\"ần\"/\"ền\" is set off with a hyphen "
+               "(\"ờnt\" -> \"ờn-t\"), e.g. current -> k(h)ớ-rờn-t.")
+
+    # "úk" isn't a valid Vietnamese spelling (the coda /k/ after "u" is written "c"),
+    # so rewrite it as "úc-k": the proper coda "úc" plus a split-off released "-k".
+    # e.g. look "lúk" -> "lúc-k", book "búk" -> "búc-k".
+    _before_uk = list(alternatives)
+    alternatives = [a.replace("úk", "úc-k") for a in alternatives]
+    if alternatives != _before_uk:
+        _trace("úk -> úc-k", " / ".join(dict.fromkeys(alternatives)),
+               "\"úk\" isn't valid Vietnamese (coda /k/ after \"u\" is written \"c\"), so it "
+               "becomes \"úc-k\" -- the coda \"úc\" plus a split released \"-k\" (look -> lúc-k).")
+
+    # A word-final "ú-đ" takes an added "t" coda: "ú-đ" -> "út-đ" (the "u" vowel
+    # needs a stop coda before the released -đ). e.g. mood "mú-đ" -> "mút-đ".
+    _before_uud = list(alternatives)
+    alternatives = [a[:-3] + "út-đ" if a.endswith("ú-đ") else a for a in alternatives]
+    if alternatives != _before_uud:
+        _trace("Final ú-đ -> út-đ", " / ".join(dict.fromkeys(alternatives)),
+               "A word-final \"ú-đ\" becomes \"út-đ\" -- the \"u\" vowel takes an added \"t\" "
+               "coda before the released \"-đ\" (mood -> mút-đ, stood -> stút-đ).")
+
     final = list(dict.fromkeys(alternatives))
     _trace("Final viet_pron_code", " / ".join(final),
            "The de-duplicated alternatives, stored as the viet_pron_code.")
@@ -997,7 +1103,7 @@ AGE_EDGE_REDUCED_WORDS = {
     "drainage", "encourage", "garbage", "hostage", "image", "knowledge",
     "language", "lineage", "luggage", "manage", "message", "miscarriage",
     "mortgage", "package", "parentage", "passage", "percentage", "pilgrimage",
-    "postage", "privilege", "salvage", "shortage", "spillage", "slippage",
+    "postage", "privilege", "salvage", "shortage", "spillage", "slippage", "stoppage",
     "storage", "tutelage", "usage", "village", "vintage", "voyage",
 }
 
@@ -1045,9 +1151,9 @@ def modify_arpabet_stress(phonemes, part_of_speech=None, syllable_count=None, wo
         # normalize the vowel's stress digit to 0 (e.g. "BEE" B IY1 -> B IY0).
         # EXCEPTION: keep the stress only for a closed syllable whose coda is
         # EXACTLY ONE consonant from the keep-set -- "CAT" K AE1 T, "BAD" B AE1 D,
-        # "CAP" K AE1 P, "KISS" K IH1 S. A multi-consonant coda ("BAND" B AE1 N D,
-        # "BANK" B AE1 NG K, "STRENGTH" ...) still normalizes to 0.
-        _KEEP_STRESS_FINAL = ("T", "D", "P", "G", "S", "Z")
+        # "CAP" K AE1 P, "BOOK" B UH1 K, "KISS" K IH1 S. A multi-consonant coda
+        # ("BAND" B AE1 N D, "BANK" B AE1 NG K, "STRENGTH" ...) still normalizes to 0.
+        _KEEP_STRESS_FINAL = ("T", "D", "P", "G", "K", "S", "Z")
         # Coda = the consonants after the single vowel (nucleus).
         _vowel_idx = next((i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None), None)
         _coda = phonemes[_vowel_idx + 1:] if _vowel_idx is not None else []

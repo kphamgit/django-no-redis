@@ -3,7 +3,7 @@ from rest_framework import serializers
 from api.models import Unit, Quiz, Question, Card, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
 from django.contrib.auth.models import User
 import json
-from .utils import hyphenation, word_to_vietnamese
+from .utils import hyphenation, respell_in_vietnamese
 
 class QuestionSerializer(serializers.ModelSerializer):
     #video_segment = serializers.PrimaryKeyRelatedField(queryset=VideoSegment.objects.all(), required=False, allow_null=False)
@@ -145,7 +145,7 @@ class PartOfSpeechSerializer(serializers.ModelSerializer):
         # Only when the caller didn't supply one and the word is in cmudict.
         if not validated_data.get("viet_pron_code"):
             dict_entry = validated_data.get("dict_entry")
-            viet = word_to_vietnamese(
+            viet = respell_in_vietnamese(
                 dict_entry.head_word, part_of_speech=validated_data.get("name")
             ) if dict_entry else []
             if viet:
