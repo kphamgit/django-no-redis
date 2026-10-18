@@ -709,7 +709,7 @@ def grammar_fix(request):
             f"the meaning. Respond as a JSON object with exactly these keys: "
             f'"corrected" (the full corrected English sentence), '
             f'"changed" (true if you changed anything, false if the sentence was '
-            f'already correct), and "explanation" (in Vietnamese, at most 120 words, '
+            f'already correct), and "explanation" (in Vietnamese, at most 70 words, '
             f"briefly explaining the main corrections and why; keep any quoted English "
             f"words in English). If the sentence is already correct, set \"corrected\" "
             f'to the original sentence, "changed" to false, and briefly say in '
