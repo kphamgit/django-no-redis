@@ -48,25 +48,34 @@ class Command(BaseCommand):
 
         qs = PartOfSpeech.objects.filter(dict_entry__source=source).select_related("dict_entry")
         if not overwrite:
-            qs = qs.filter(Q(viet_pron_code__isnull=True) | Q(viet_pron_code=""))
+            # A row needs filling if EITHER form is missing (e.g. old rows have the
+            # flapped viet_pron_code but not the new standard one).
+            qs = qs.filter(
+                Q(viet_pron_code__isnull=True) | Q(viet_pron_code="")
+                | Q(viet_pron_code_standard__isnull=True) | Q(viet_pron_code_standard="")
+            )
 
         total = qs.count()
-        scope = "(overwrite: all rows)" if overwrite else "with empty viet_pron_code"
+        scope = "(overwrite: all rows)" if overwrite else "missing a viet_pron_code form"
         self.stdout.write(f"Scanning {total} part-of-speech row(s) for source {source!r} {scope}...")
 
         updated = skipped = 0
         for pos in qs:
             head_word = pos.dict_entry.head_word
-            viet = respell_in_vietnamese(head_word, part_of_speech=pos.name)
-            if not viet:
+            # American/flapped (T -> đ) and STANDARD/non-flapped (keeps t).
+            flapped = respell_in_vietnamese(head_word, part_of_speech=pos.name, flap_t=True)
+            standard = respell_in_vietnamese(head_word, part_of_speech=pos.name, flap_t=False)
+            if not flapped and not standard:
                 skipped += 1
                 self.stdout.write(f"  skip (not in cmudict): {head_word!r} [{pos.name}]")
                 continue
-            value = json.dumps(viet, ensure_ascii=False)
-            self.stdout.write(f"  {head_word!r} [{pos.name}] -> {value}")
+            flapped_json = json.dumps(flapped, ensure_ascii=False)
+            standard_json = json.dumps(standard, ensure_ascii=False)
+            self.stdout.write(f"  {head_word!r} [{pos.name}] -> standard={standard_json} american={flapped_json}")
             if not dry_run:
-                pos.viet_pron_code = value
-                pos.save(update_fields=["viet_pron_code"])
+                pos.viet_pron_code = flapped_json
+                pos.viet_pron_code_standard = standard_json
+                pos.save(update_fields=["viet_pron_code", "viet_pron_code_standard"])
             updated += 1
 
         verb = "would update" if dry_run else "updated"

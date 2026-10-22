@@ -1815,6 +1815,14 @@ def update_part_of_speech(request, pk):
         else:
             pos.viet_pron_code = value
         changed = True
+    if 'viet_pron_code_standard' in request.data:
+        # The STANDARD (non-flapped) form; same JSON-array-string convention.
+        value = request.data.get('viet_pron_code_standard')
+        if isinstance(value, (list, tuple)):
+            pos.viet_pron_code_standard = json.dumps(list(value), ensure_ascii=False)
+        else:
+            pos.viet_pron_code_standard = value
+        changed = True
     if changed:
         pos.save()
     return Response({
@@ -1824,6 +1832,7 @@ def update_part_of_speech(request, pk):
         "pron_code": pos.pron_code,
         "amevar_pron": pos.amevar_pron,
         "viet_pron_code": pos.viet_pron_code,
+        "viet_pron_code_standard": pos.viet_pron_code_standard,
     })
 
 

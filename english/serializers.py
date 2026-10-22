@@ -127,10 +127,11 @@ class PartOfSpeechSerializer(serializers.ModelSerializer):
     class Meta:
         model = PartOfSpeech
         unique_together = ("dict_entry", "name")  # Ensure that the combination of dict_entry and name is unique
-        fields = ["id", "name", "dict_entry_id", "pron_code", "amevar_pron", "viet_pron_code", "viet_pron_regional_variant", "frequency", "grammar", "video_url", "audio_blob", "senses", "idioms"]
+        fields = ["id", "name", "dict_entry_id", "pron_code", "amevar_pron", "viet_pron_code", "viet_pron_code_standard", "viet_pron_regional_variant", "frequency", "grammar", "video_url", "audio_blob", "senses", "idioms"]
         extra_kwargs = {
             "pron_code": {"required": False},
             "viet_pron_code": {"required": False},
+            "viet_pron_code_standard": {"required": False},
             "viet_pron_regional_variant": {"required": False},
             "video_url": {"required": False},
             "audio_blob": {"read_only": True},
@@ -139,17 +140,22 @@ class PartOfSpeechSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         senses_data = validated_data.pop("senses", [])
         idioms_data = validated_data.pop("idioms", [])
-        # Auto-fill the Vietnamese pronunciation code from the head word:
-        # ARPAbet phonemes (cmudict) -> Vietnamese, stored as a JSON array of the
-        # syllable-hyphenated alternatives (same format the populate view returns).
-        # Only when the caller didn't supply one and the word is in cmudict.
-        if not validated_data.get("viet_pron_code"):
-            dict_entry = validated_data.get("dict_entry")
-            viet = respell_in_vietnamese(
-                dict_entry.head_word, part_of_speech=validated_data.get("name")
-            ) if dict_entry else []
-            if viet:
-                validated_data["viet_pron_code"] = json.dumps(viet, ensure_ascii=False)
+        # Auto-fill the Vietnamese pronunciation from the head word: ARPAbet phonemes
+        # (cmudict) -> Vietnamese, stored as a JSON array of syllable-hyphenated
+        # alternatives. Generate BOTH forms -- the American/flapped (viet_pron_code,
+        # T -> đ) and the STANDARD/non-flapped (viet_pron_code_standard, keeps t) --
+        # when the caller didn't supply them and the word is in cmudict.
+        dict_entry = validated_data.get("dict_entry")
+        if dict_entry:
+            pos_name = validated_data.get("name")
+            if not validated_data.get("viet_pron_code"):
+                flapped = respell_in_vietnamese(dict_entry.head_word, part_of_speech=pos_name, flap_t=True)
+                if flapped:
+                    validated_data["viet_pron_code"] = json.dumps(flapped, ensure_ascii=False)
+            if not validated_data.get("viet_pron_code_standard"):
+                standard = respell_in_vietnamese(dict_entry.head_word, part_of_speech=pos_name, flap_t=False)
+                if standard:
+                    validated_data["viet_pron_code_standard"] = json.dumps(standard, ensure_ascii=False)
         pos = PartOfSpeech.objects.create(**validated_data)
         for sense_data in senses_data:
             sense_data['pos'] = pos  # set the pos field of sense_data to the PartOfSpeech object we just created

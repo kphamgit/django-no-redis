@@ -526,6 +526,9 @@ def corrected_hyphenation_for_pos(word, part_of_speech=None):
 # maps to a LIST of candidates, since one ARPAbet sound can be written several
 # ways in Vietnamese (e.g. "AH0" -> "Ớ" or "Ấ"). Only a couple of entries for
 # now — add more as the approach is validated.
+
+# "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
+
 ARPABET_VOWELS_TO_VIETNAMESE = {
     "AA0": ["o"], "AA1": ["ó"],"AA2": ["ó"],"AA9": ["ò"],
     "AE0": ["a"],"AE1": ["á"],"AE2": ["á"],"AE9": ["à"],
@@ -536,10 +539,10 @@ ARPABET_VOWELS_TO_VIETNAMESE = {
     "AW0": ["ao"],"AW1": ["áo"],"AW2": ["áo"], "AW9": ["ào"],
     "AX0": ["ơ"],"AX1": ["ờ"],"AX2": ["ờ"], "AX9": ["ờ"],
     "AXR0":["ơ"],"AXR1": ["ờ"],"AXR2": ["ờ"],
-    "AY0": ["ai"],"AY1": ["ái"],"AY2": ["ái"],"AY9": ["ài"],
+    "AY0": ["ai"],"AY1": ["ái"],"AY2": ["ai"],"AY9": ["ài"],
     "EH0": ["e"],"EH1": ["é"],"EH2": ["é"], "EH9": ["è"],
     "ER0": ["ơr"],"ER1": ["ớr"],"ER2": ["ớr"],"ER9": ["ờr"],
-    "EY0": ["ay"],"EY1": ["áy"],"EY2": ["ay"], "EY9": ["ày"],
+    "EY0": ["ei"],"EY1": ["éi"],"EY2": ["ey"], "EY9": ["èi"],
     "IH0": ["i"],"IH1": ["í"],"IH2": ["i"], "IH9": ["ì", "ề"],
     "IX0": ["iz"],"IX1": ["íz"],"IX2": ["íz"],"IX9": ["ìz"],
     "IY0": ["i"],"IY1": ["í"],"IY2": ["í"], "IY9": ["ì"],
@@ -674,7 +677,7 @@ def arpabet_to_vietnamese(phonemes, next_phoneme=None):
     return list(dict.fromkeys(renders))
 
 
-def respell_in_vietnamese(word, part_of_speech=None, steps=None):
+def respell_in_vietnamese(word, part_of_speech=None, steps=None, flap_t=True):
     """Convert an English word to its Vietnamese pronunciation alternatives, with
     syllables joined by "-". Syllabifies the word, runs the phonemes through
     modify_arpabet_stress (POS- and syllable-count-aware adjustments), converts each
@@ -716,7 +719,7 @@ def respell_in_vietnamese(word, part_of_speech=None, steps=None):
 
     # Vowel-quality adjustments FIRST, then the stress pass LAST (so stress digits
     # are assigned after the vowel codes are settled).
-    phonemes = modify_arpabet_quality(result["phonemes"], part_of_speech, result["syllable_count"], word, hyphenated)
+    phonemes = modify_arpabet_quality(result["phonemes"], part_of_speech, result["syllable_count"], word, hyphenated, flap_t=flap_t)
     _trace("After phoneme-quality rules (modify_arpabet_quality)", " ".join(phonemes),
            "Phoneme-QUALITY changes (base codes, no stress digits): T-flapping (T -> D "
            "between vowels); a consonant+\"-le\" ending's vowel becomes custom \"AO\"; a "
@@ -948,20 +951,8 @@ def respell_in_vietnamese(word, part_of_speech=None, steps=None):
                "(e.g. top -> t(h)óp). A plain \"t\" -- the NON-ASPIRATED t -- is left as is "
                "(a \"t\" after a consonant, e.g. \"stop\", or the \"th\" digraph).")
 
-    # A word-initial "p" is the ASPIRATED p, written "p(h)" (e.g. post -> p(h)ôst,
-    # pit -> p(h)ít). A "p" that is not word-initial -- the NON-ASPIRATED p -- is
-    # left as is: a "p" after "s" (spy, spit) and a word-medial "p" (apple ->
-    # áp-pồl) both stay plain.
-    _before_ph = list(alternatives)
-    alternatives = [
-        "p(h)" + a[1:] if a.startswith("p") and not a.startswith("p(h)") else a
-        for a in alternatives
-    ]
-    if alternatives != _before_ph:
-        _trace("Aspirated p", " / ".join(dict.fromkeys(alternatives)),
-               "A word-initial \"p\" is the ASPIRATED p, written \"p(h)\" (e.g. post -> "
-               "p(h)ôst). A NON-ASPIRATED p -- after \"s\" (spy/spit) or word-medial "
-               "(apple -> áp-pồl) -- is left as is.")
+    # (No aspirated-"p" rule: an aspirated "p" isn't a sound Vietnamese uses, so a
+    # word-initial "p" is left plain -- unlike the aspirated "t"/"k" above/below.)
 
     # A word-initial "k" is the ASPIRATED k, written "k(h)" (e.g. key -> k(h)í:,
     # cat -> k(h)át). A "k" that is not word-initial -- the NON-ASPIRATED k -- is
@@ -1163,6 +1154,18 @@ def modify_arpabet_stress(phonemes, part_of_speech=None, syllable_count=None, wo
                 _base_code(p) + "0" if _vowel_stress(p) is not None else p
                 for p in phonemes
             ]
+    if syllable_count == 3:
+        # Three-syllable words: trust cmudict for WHICH syllable is stressed (don't
+        # move the stress), but extend the 2-syllable 1/9 treatment to the reduced
+        # syllables -- every UNSTRESSED vowel (cmudict digit "0") becomes the custom
+        # "9" (huyền tone), e.g. consider "K AH0 N S IH1 D ER0" -> "...AH9...IH1...ER9".
+        # Primary "1" and SECONDARY "2" (a full vowel, as in -ize/-ate endings:
+        # organize "AO1 ...AH0... AY2") are left alone so a secondary-stressed syllable
+        # isn't over-reduced to huyền.
+        phonemes = [
+            _base_code(p) + "9" if _vowel_stress(p) == "0" else p
+            for p in phonemes
+        ]
 
     # Consonant + "-le" ending ("ta-ble", "ap-ple", "ex-am-ple", "hor-ri-ble"):
     # the final "-le" syllable is reduced, so apply the 1/9 rule to it -- stamp its
@@ -1261,32 +1264,45 @@ def modify_arpabet_stress(phonemes, part_of_speech=None, syllable_count=None, wo
             i += 1
     phonemes = adjusted
 
+    # In a MULTI-syllable word the one remaining stress "1" is the word's PRIMARY
+    # stress, which the two downgrade rules below must not strip (doing so left words
+    # like continue / remember / concentrate with no stressed syllable). So those
+    # rules only demote the vowel for a single-syllable word; a polysyllable keeps
+    # its primary stress.
+    _multi = syllable_count is not None and syllable_count >= 2
+
     # Within a syllable, a vowel/diphthong directly before a coda "M", "N" or "L"
     # is unstressed in this scheme -> change its primary stress 1 to 0, e.g.
     # time -> T AY0 M, file -> F AY0 L, film -> F IH0 L M. "Coda" means the M/N/L
     # is NOT the onset of a following vowel (so it must not be immediately followed
     # by a vowel) -- that spares "timer"/"funny" (M/N is an onset there). Only
     # touches stress 1, leaving the 9-markers set above intact. Runs after the 1/9
-    # rule so the downgraded vowel isn't re-stressed.
-    for i in range(len(phonemes) - 1):
-        if phonemes[i][-1:] == "1" and phonemes[i + 1] in ("M", "N", "L"):
-            after = phonemes[i + 2] if i + 2 < len(phonemes) else None
-            if after is None or not after[-1:].isdigit():   # coda, not an onset
-                phonemes[i] = phonemes[i][:-1] + "0"
+    # rule so the downgraded vowel isn't re-stressed. SKIPPED for polysyllables so a
+    # primary-stressed syllable (continue's "tin", remember's "mem") isn't demoted.
+    if not _multi:
+        for i in range(len(phonemes) - 1):
+            if phonemes[i][-1:] == "1" and phonemes[i + 1] in ("M", "N", "L"):
+                after = phonemes[i + 2] if i + 2 < len(phonemes) else None
+                if after is None or not after[-1:].isdigit():   # coda, not an onset
+                    phonemes[i] = phonemes[i][:-1] + "0"
 
-    # A stressed vowel/diphthong directly before an "ER" (tire, fire, liar) ->
-    # downgrade the vowel's stress 1 to 0 AND set the ER's stress to 9, e.g.
-    # tire "T AY1 ER0" -> "T AY0 ER9", fire "F AY1 ER0" -> "F AY0 ER9". Runs last,
-    # after the 1/9 rule, so the downgraded vowel isn't re-stressed.
+    # A stressed vowel/diphthong directly before an "ER" -> reduce the "ER" to "9",
+    # and downgrade the vowel's stress 1 to 0 ONLY when that vowel is the word's
+    # FIRST nucleus (the "monosyllabic-feel" vowel+ER words: fire "F AY1 ER0" ->
+    # "F AY0 ER9", tire, liar, hour). When a syllable precedes it the vowel is the
+    # real primary stress, so it is kept while the ER still reduces: desire
+    # "D IH0 Z AY1 ER0" -> "...AY1 ER9".
     for i in range(len(phonemes) - 1):
         if phonemes[i][-1:] == "1" and phonemes[i + 1].startswith("ER"):
-            phonemes[i] = phonemes[i][:-1] + "0"
+            vowel_is_first = not any(_vowel_stress(p) is not None for p in phonemes[:i])
+            if vowel_is_first:
+                phonemes[i] = phonemes[i][:-1] + "0"
             phonemes[i + 1] = phonemes[i + 1][:-1] + "9"
 
     return phonemes
 
 
-def modify_arpabet_quality(phonemes, part_of_speech=None, syllable_count=None, word=None, hyphenated=None):
+def modify_arpabet_quality(phonemes, part_of_speech=None, syllable_count=None, word=None, hyphenated=None, flap_t=True):
     """Phoneme-QUALITY ARPAbet adjustments (runs BEFORE modify_arpabet_stress).
     Mostly changes base codes (vowels, and the T-flapping consonant rule) and
     leaves stress digits to modify_arpabet_stress, which runs afterwards -- the one
@@ -1316,14 +1332,17 @@ def modify_arpabet_quality(phonemes, part_of_speech=None, syllable_count=None, w
     # the raw cmudict phonemes, so it reads the ORIGINAL stress (before the stress
     # pass rewrites unstressed vowels to the custom 9).
     phonemes = list(phonemes)
-    for i in range(1, len(phonemes) - 1):
-        if phonemes[i] == "T":
-            prev = phonemes[i - 1]
-            nxt = phonemes[i + 1]
-            prev_is_vowel_sound = prev[-1:].isdigit() or prev == "R"
-            next_is_unstressed_vowel = nxt[-1:] in ("0", "2")  # stress 0 or secondary 2
-            if prev_is_vowel_sound and next_is_unstressed_vowel:
-                phonemes[i] = "D"
+    # flap_t=False produces the STANDARD (dictionary) form, keeping every "T" as a
+    # "t"; flap_t=True (default) applies American T-flapping (T -> D between vowels).
+    if flap_t:
+        for i in range(1, len(phonemes) - 1):
+            if phonemes[i] == "T":
+                prev = phonemes[i - 1]
+                nxt = phonemes[i + 1]
+                prev_is_vowel_sound = prev[-1:].isdigit() or prev == "R"
+                next_is_unstressed_vowel = nxt[-1:] in ("0", "2")  # stress 0 or secondary 2
+                if prev_is_vowel_sound and next_is_unstressed_vowel:
+                    phonemes[i] = "D"
 
     nuclei = [i for i, p in enumerate(phonemes) if _vowel_stress(p) is not None]
     if _ends_in_consonant_le(hyphenated):
