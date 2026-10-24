@@ -1064,6 +1064,16 @@ def respell_in_vietnamese(word, part_of_speech=None, steps=None, flap_t=True):
                "A word-final \"ú-đ\" becomes \"út-đ\" -- the \"u\" vowel takes an added \"t\" "
                "coda before the released \"-đ\" (mood -> mút-đ, stood -> stút-đ).")
 
+    # "ák" isn't a valid Vietnamese spelling (the coda /k/ after "a" is written "c"),
+    # so rewrite it as "ác-k": the proper coda "ác" plus a split-off released "-k".
+    # e.g. back "bák" -> "bác-k", attack "ờ-ták" -> "ờ-tác-k".
+    _before_ak = list(alternatives)
+    alternatives = [a.replace("ák", "ác-k") for a in alternatives]
+    if alternatives != _before_ak:
+        _trace("ák -> ác-k", " / ".join(dict.fromkeys(alternatives)),
+               "\"ák\" isn't valid Vietnamese (coda /k/ after \"a\" is written \"c\"), so it "
+               "becomes \"ác-k\" -- the coda \"ác\" plus a split released \"-k\" (back -> bác-k).")
+
     final = list(dict.fromkeys(alternatives))
     _trace("Final viet_pron_code", " / ".join(final),
            "The de-duplicated alternatives, stored as the viet_pron_code.")
