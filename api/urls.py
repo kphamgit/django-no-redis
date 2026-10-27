@@ -10,6 +10,7 @@ urlpatterns = [
     
     path('send-notification/', views.send_notification, name='send_notification'),
     path("me/", views.current_user, name="current-user"),
+    path("logout/", views.logout_user, name="logout"),
 
     # spaCy lemmatization
     path("lemmatize/", views.lemmatize, name="lemmatize"),

@@ -937,19 +937,20 @@ def respell_in_vietnamese(word, part_of_speech=None, steps=None, flap_t=True):
                "Alternatives with an OPEN syllable ending in \"â\"/\"ấ\"/\"ầ\" are dropped "
                "(that vowel needs a coda or glide in Vietnamese); if all would be dropped, "
                "the unfiltered list is kept.")
-    # Word-initial "t" (not followed by "h") is the ASPIRATED t, shown as "t(h)"
-    # (e.g. top -> t(h)óp). A plain "t" -- the NON-ASPIRATED t -- is left as is,
-    # e.g. a "t" after a consonant ("stop") or the "th" digraph.
+    # Word-initial "t" is the ASPIRATED t, shown as "t(h)" (e.g. top -> t(h)óp). A
+    # plain "t" -- the NON-ASPIRATED t -- is left as is: a "t" after a consonant
+    # ("stop"), the "th" digraph, or a "t" in a "tr" cluster (truck -> trớk, not
+    # t(h)rớk), where the t is not aspirated.
     _before_th = list(alternatives)
     alternatives = [
-        "t(h)" + a[1:] if a.startswith("t") and not a.startswith("th") else a
+        "t(h)" + a[1:] if a.startswith("t") and not a.startswith("th") and not a.startswith("tr") else a
         for a in alternatives
     ]
     if alternatives != _before_th:
         _trace("Aspirated t", " / ".join(dict.fromkeys(alternatives)),
-               "A word-initial \"t\" (not \"th\") is the ASPIRATED t, written \"t(h)\" "
-               "(e.g. top -> t(h)óp). A plain \"t\" -- the NON-ASPIRATED t -- is left as is "
-               "(a \"t\" after a consonant, e.g. \"stop\", or the \"th\" digraph).")
+               "A word-initial \"t\" is the ASPIRATED t, written \"t(h)\" (e.g. top -> "
+               "t(h)óp). A plain \"t\" is left as is: after a consonant (\"stop\"), the "
+               "\"th\" digraph, or a \"tr\" cluster (truck -> trớk).")
 
     # (No aspirated-"p" rule: an aspirated "p" isn't a sound Vietnamese uses, so a
     # word-initial "p" is left plain -- unlike the aspirated "t"/"k" above/below.)
@@ -1073,6 +1074,14 @@ def respell_in_vietnamese(word, part_of_speech=None, steps=None, flap_t=True):
         _trace("ák -> ác-k", " / ".join(dict.fromkeys(alternatives)),
                "\"ák\" isn't valid Vietnamese (coda /k/ after \"a\" is written \"c\"), so it "
                "becomes \"ác-k\" -- the coda \"ác\" plus a split released \"-k\" (back -> bác-k).")
+
+    # Same for the â-vowel: "ấk" -> "ấc-k" (coda /k/ after "â" written "c").
+    _before_afk = list(alternatives)
+    alternatives = [a.replace("ấk", "ấc-k") for a in alternatives]
+    if alternatives != _before_afk:
+        _trace("ấk -> ấc-k", " / ".join(dict.fromkeys(alternatives)),
+               "\"ấk\" isn't valid Vietnamese (coda /k/ after \"â\" is written \"c\"), so it "
+               "becomes \"ấc-k\" -- the coda \"ấc\" plus a split released \"-k\".")
 
     final = list(dict.fromkeys(alternatives))
     _trace("Final viet_pron_code", " / ".join(final),

@@ -27,19 +27,45 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 
+class LoggingTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Default login, but prints the username on a successful authentication
+    (visible in the server/Heroku logs)."""
+    def validate(self, attrs):
+        print(f"Login attempt for user: {attrs.get(self.username_field)}")
+        data = super().validate(attrs)  # authenticates credentials; sets self.user
+        print(f"User logged in successfully: {self.user.username}")
+        return data
+
+
+class LoggingTokenObtainPairView(TokenObtainPairView):
+    serializer_class = LoggingTokenObtainPairSerializer
+
+
 class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):
     """Like the normal login, but only issues tokens to users with is_staff=True.
     Used by the admin/teacher app so students (is_staff=False) cannot sign in there.
     The regular /api/token/ endpoint is unchanged and still serves the student app."""
     def validate(self, attrs):
+        print(f"Staff login attempt for user: {attrs.get(self.username_field)}")
         data = super().validate(attrs)  # authenticates credentials; sets self.user
         if not self.user.is_staff:
             raise PermissionDenied("This account is not authorized to access this app (staff only).")
+        print(f"Staff user logged in successfully: {self.user.username}")
         return data
 
 
 class StaffTokenObtainPairView(TokenObtainPairView):
     serializer_class = StaffTokenObtainPairSerializer
+
+
+@api_view(["POST"])
+def logout_user(request):
+    """JWT logout is otherwise client-side (the app just discards its tokens). The
+    frontend calls this first -- while the access token is still valid -- so a
+    successful logout is logged server-side, mirroring the login log. The default
+    IsAuthenticated permission guarantees request.user is the real, authenticated user."""
+    print(f"***** User logged out successfully: {request.user.username}")
+    return Response({"detail": "logged out"})
 
 
 @api_view(["GET"])

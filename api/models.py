@@ -37,12 +37,18 @@ class Unit(models.Model):
         return self.name
     
 class Quiz(models.Model):
+    QUIZ_TYPE_CHOICES = [
+        ("video", "Video"),
+        ("reading", "Reading"),
+        ("questions_only", "Questions only"),
+    ]
     name = models.CharField(max_length=100)
     quiz_number = models.IntegerField()
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name="quizzes")
     video_url = models.CharField(null=True, blank=True)
     reading = models.TextField(null=True, blank=True)  # rich-text/HTML: paragraphs and/or <img> pictures
-    
+    quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default="questions_only")
+
     def __str__(self):
         return self.name
     
