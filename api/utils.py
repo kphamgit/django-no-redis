@@ -228,6 +228,25 @@ def check_sentence_scramble(user_answer, answer_key, options):
         error = True
     return {"error_flag": error, "score": score}
 
+def _normalize_writing(text):
+    # Ignore differences students can't see or don't control: line breaks and runs of spaces,
+    # and curly vs straight quotes (phones often type ’ instead of ').
+    text = (text or "").replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    return " ".join(text.split())
+
+# A writing question can accept several answers, saved in answer_key joined by "*".
+# Must match WRITING_ANSWER_SEPARATOR in the teacher app.
+WRITING_ANSWER_SEPARATOR = "*"
+
+def check_writing(user_answer, answer_key, options):
+    # Writing (format 13): the student edits the given text in a textarea; it's correct when the
+    # edited text matches any of the accepted answers. Case and punctuation count (fixing them is
+    # part of the exercise), but spacing, line breaks and quote styles don't.
+    accepted = {_normalize_writing(key) for key in (answer_key or "").split(WRITING_ANSWER_SEPARATOR)}
+    accepted.discard("")
+    error = _normalize_writing(user_answer) not in accepted
+    return {"error_flag": error, "score": 0 if error else 5}
+
 def check_answer(format, user_answer, answer_key):
     # Placeholder function to check if the user's answer is correct
     #print("Checking answer... format:", format, " user_answer:", user_answer, " answer_key:", answer_key)
@@ -287,6 +306,9 @@ def check_answer(format, user_answer, answer_key):
         #print("Checking sentence scramble answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_sentence_scramble(user_answer, answer_key, options=[])
         #print("sentence scramble results:", results)
+
+    elif format == 13:  #writing
+        results = check_writing(user_answer, answer_key, options=[])
         
     return results
         

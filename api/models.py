@@ -70,11 +70,11 @@ class Question(models.Model):
     audio_str = models.CharField(max_length=500, blank=True, null=True, default="")
     instructions = models.TextField(max_length=500000, blank=True,null=True, default="")
     prompt = models.TextField(max_length=5000, blank=True,null=True, default="")
-    content = models.TextField(max_length=1000, default="")
+    content = models.TextField(max_length=5000, default="")
     content_language = models.CharField(max_length=10, blank=True, null=True, default="en")  # e.g., "en" for English, "vi" for Vietnamese
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     video_segment = models.ForeignKey(VideoSegment, on_delete=models.CASCADE, related_name="video_segment_questions", blank=True, null=True)
-    answer_key = models.TextField(max_length=500, default="")
+    answer_key = models.TextField(max_length=10000, default="")
     score = models.IntegerField(default=0, null=True)
     timeout = models.IntegerField(default=0, null=True)  # in miliseconds
     button_cloze_options=models.TextField(max_length=200, blank=True, null=True, default="")
