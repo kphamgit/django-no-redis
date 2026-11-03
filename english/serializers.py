@@ -65,7 +65,7 @@ class QuizSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz
         #fields = ["id", "unit_id", "name", "quiz_number", "video_url", "questions"]
-        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "reading", "quiz_type", "questions", "video_segments"]
+        fields = ["id", "unit_id", "name", "quiz_number", "video_url", "reading", "quiz_type", "description", "questions", "video_segments"]
         
         extra_kwargs = {
            "questions": {"required": False},  # Make the "questions" field optional

@@ -48,6 +48,7 @@ class Quiz(models.Model):
     video_url = models.CharField(null=True, blank=True)
     reading = models.TextField(null=True, blank=True)  # rich-text/HTML: paragraphs and/or <img> pictures
     quiz_type = models.CharField(max_length=20, choices=QUIZ_TYPE_CHOICES, default="questions_only")
+    description = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return self.name
