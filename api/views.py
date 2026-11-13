@@ -14,7 +14,11 @@ from api.utils import check_answer
 
 from django.conf import settings
 from django.utils import timezone
-from .spaced_repetition import apply_sm2
+from .spaced_repetition import (apply_sm2, grade_answer, start_of_review_day,
+                                ANSWER_TIME_LIMIT_MS, FAST_ANSWER_MS)
+import random
+import secrets
+from django.utils.crypto import constant_time_compare, salted_hmac
 
 
 import json
@@ -2313,36 +2317,54 @@ def delete_assignment_student(request, assignment_student_id):
     return Response(status=204)
 
 
-# Placeholder shown on the back of a card when no definition has been set yet.
-PLACEHOLDER_DEFINITION = "Definition coming soon — this is placeholder text for the back of the card."
+def _distractor_pool():
+    """Cards that can supply a wrong answer: (text, part_of_speech, definition), one per
+    distinct definition. Cards without a definition are left out."""
+    pool, seen = [], set()
+    for text, pos, definition in Card.objects.exclude(definition="").values_list(
+            "text", "part_of_speech", "definition"):
+        if definition not in seen:
+            seen.add(definition)
+            pool.append((text, pos, definition))
+    return pool
 
 
-def _build_mc_options(card, definition_pool):
-    """Return (correct_definition, shuffled options) for a card.
+def _correct_option_key(user_id, card_id, nonce):
+    """Key of a question's correct option. It's an HMAC of (user, card, nonce) with the server
+    secret, so it looks just as random as the wrong options' keys: the client can't tell which
+    option is right, and only the server can check an answer (see answer_card)."""
+    return salted_hmac("card-review-option", f"{user_id}:{card_id}:{nonce}").hexdigest()[:16]
 
-    options is a list of {"definition": str, "is_correct": bool}: the card's own
-    definition plus up to 3 distractors drawn from definition_pool.
-    """
-    import random
-    correct_def = card.definition or PLACEHOLDER_DEFINITION
-    distractors = [d for d in definition_pool if d != card.definition]
-    random.shuffle(distractors)
-    distractors = distractors[:3]
-    options = [{"definition": correct_def, "is_correct": True}]
-    options += [{"definition": d, "is_correct": False} for d in distractors]
+
+def _build_question(card, user, pool):
+    """A multiple-choice question for a card: {"nonce", "options": [{"key", "definition"}]}.
+
+    The card's own definition plus up to 3 wrong ones, preferring the same part of speech
+    (a noun's definition is easy to rule out for a verb). Other cards for the same word are
+    skipped, since another sense of the word can read like a correct answer."""
+    word = card.text.strip().lower()
+    candidates = [(pos, d) for text, pos, d in pool
+                  if d != card.definition and text.strip().lower() != word]
+    random.shuffle(candidates)
+    same_pos = [d for pos, d in candidates if pos == card.part_of_speech]
+    other_pos = [d for pos, d in candidates if pos != card.part_of_speech]
+    distractors = (same_pos + other_pos)[:3]
+
+    nonce = secrets.token_hex(8)
+    options = [{"key": _correct_option_key(user.id, card.id, nonce), "definition": card.definition}]
+    options += [{"key": secrets.token_hex(8), "definition": d} for d in distractors]
     random.shuffle(options)
-    return correct_def, options
+    return {"nonce": nonce, "options": options}
 
 
-def _serialize_due_card(card, review, definition_pool):
-    """Build the API payload (with multiple-choice options) for one due card."""
-    correct_def, options = _build_mc_options(card, definition_pool)
+def _serialize_due_card(card, review, user, pool):
+    """Build the API payload for one due card. The correct definition is NOT included: it's
+    returned by answer_card once the student has answered."""
     return {
         "id": card.id,
         "text": card.text,                 # front (the word)
-        "definition": correct_def,         # back (correct definition, for post-answer reveal)
         "part_of_speech": card.part_of_speech,
-        "options": options,                # shuffled multiple-choice options
+        **_build_question(card, user, pool),  # nonce + shuffled options
         "easiness": review.easiness if review else 2.5,
         "interval": review.interval if review else 0,
         "repetitions": review.repetitions if review else 0,
@@ -2395,8 +2417,8 @@ def get_due_cards(request, quiz_id):
     URL/frontend compatibility). A card is due if the user has no review row for it
     yet or its next_review_at is in the past."""
     now = timezone.now()
-    all_cards = list(Card.objects.order_by('id'))
-    definition_pool = list({c.definition for c in all_cards if c.definition})
+    all_cards = list(Card.objects.exclude(definition="").order_by('id'))
+    pool = _distractor_pool()
     reviews = {r.card_id: r for r in CardReview.objects.filter(user=request.user)}
 
     due_cards = []
@@ -2408,9 +2430,10 @@ def get_due_cards(request, quiz_id):
             or review.next_review_at <= now
         )
         if is_due:
-            due_cards.append(_serialize_due_card(card, review, definition_pool))
+            due_cards.append(_serialize_due_card(card, review, request.user, pool))
 
-    return Response({"due_cards": due_cards})
+    return Response({"due_cards": due_cards,
+                     "time_limit_ms": ANSWER_TIME_LIMIT_MS, "fast_answer_ms": FAST_ANSWER_MS})
 
 
 @api_view(["GET"])
@@ -2442,15 +2465,20 @@ def get_all_due_cards(request):
         # print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
 
     # Distractor pool drawn from all cards so multiple-choice options stay plausible.
-    definition_pool = list({c.definition for c in Card.objects.all() if c.definition})
+    pool = _distractor_pool()
 
     due_cards = []
     for review in reviews:
+        # A card without a definition can't be quizzed; it stays due until one is added.
+        if not review.card.definition:
+            continue
         is_due = review.next_review_at is None or review.next_review_at <= now
         if is_due:
-            due_cards.append(_serialize_due_card(review.card, review, definition_pool))
+            due_cards.append(_serialize_due_card(review.card, review, target_user, pool))
 
-    return Response({"due_cards": due_cards})
+    # The time limits come from here so the frontend countdown matches the backend grading.
+    return Response({"due_cards": due_cards,
+                     "time_limit_ms": ANSWER_TIME_LIMIT_MS, "fast_answer_ms": FAST_ANSWER_MS})
 
 
 @api_view(["GET"])
@@ -2486,21 +2514,72 @@ def get_all_cards_for_user(request):
     return Response({"cards": cards})
 
 
-@api_view(["POST"])
-def review_card(request, card_id):
+@api_view(["GET"])
+def get_card_question(request, card_id):
+    """A fresh multiple-choice question (new nonce, new wrong answers, new order) for one
+    card. Used when a missed card comes back later in the same session."""
     try:
         card = Card.objects.get(id=card_id)
     except Card.DoesNotExist:
         return Response({"error": "Card not found."}, status=404)
-    quality = int(request.data.get('quality', 4))
+    return Response(_build_question(card, request.user, _distractor_pool()))
+
+
+@api_view(["POST"])
+def answer_card(request, card_id):
+    """Check and grade a multiple-choice answer on the server.
+
+    Body: {"nonce": str, "choice": <option key> | "dont_know" | "timeout", "latency_ms": int}
+    latency_ms is the time from the options appearing to the answer, measured by the client.
+
+    Only an answer to a DUE card is graded (apply_sm2). Grading moves the card to tomorrow or
+    later, so any further answer that day -- a missed card shown again in the same session --
+    is practice: checked, but the schedule is left alone. The server decides this, not the
+    client, so a student can't learn the right answer from a practice attempt and then
+    resubmit it for a grade.
+
+    Returns {correct, correct_key, definition, quality, reason, lapsed, graded}, so the client
+    can highlight the right option and explain the grade."""
+    try:
+        card = Card.objects.get(id=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": "Card not found."}, status=404)
+    nonce = str(request.data.get('nonce') or '')
+    if not nonce:
+        return Response({"error": "nonce is required."}, status=400)
+    choice = str(request.data.get('choice') or '')
+    try:
+        latency_ms = max(0, int(request.data.get('latency_ms', 0)))
+    except (TypeError, ValueError):
+        return Response({"error": "latency_ms must be a number."}, status=400)
+
+    correct_key = _correct_option_key(request.user.id, card.id, nonce)
+    correct = constant_time_compare(choice, correct_key)
+    quality, reason = grade_answer(correct, choice, latency_ms)
+
     review, _ = CardReview.objects.get_or_create(
         user=request.user,
         card=card,
         defaults={'easiness': 2.5, 'interval': 0, 'repetitions': 0}
     )
-    apply_sm2(review, quality)
-    review.save()
-    return Response(CardSerializer(card).data)
+    graded = review.next_review_at is None or review.next_review_at <= timezone.now()
+    if graded:
+        apply_sm2(review, quality)
+        review.save()
+        days = review.interval
+        reason += f" Next review in {days} day{'s' if days != 1 else ''}."
+    else:
+        reason += " Practice only: this card was already graded today."
+
+    return Response({
+        "graded": graded,
+        "correct": correct,
+        "correct_key": correct_key,
+        "definition": card.definition,
+        "quality": quality,
+        "reason": reason,
+        "lapsed": quality < 4,
+    })
 
 
 # When a student adds a card to their review, schedule its first review this many days
@@ -2533,10 +2612,11 @@ def add_card_to_review(request, card_id):
 
 @api_view(["POST"])
 def add_sense_card_to_review(request, sense_id):
-    """Add a dictionary sense's card to the student's review queue, due now so it can be learned
-    immediately, and return the card. If no card exists yet for the sense (e.g. a word the
-    student just created), create it from the sense first so students can review new words."""
-    from datetime import timedelta  # noqa: F401 (kept parallel with add_card_to_review)
+    """Add a dictionary sense's card to the student's review queue and return the card. The
+    student has only just met the word, so it isn't graded now (the client just shows its
+    definition); its first multiple-choice review is due at the start of tomorrow.
+    If no card exists yet for the sense (e.g. a word the student just created), create it
+    from the sense first so students can review new words."""
     from .models import Sense
     card = Card.objects.filter(sense_id=sense_id).first()
     if card is None:
@@ -2558,7 +2638,7 @@ def add_sense_card_to_review(request, sense_id):
             "easiness": 2.5,
             "interval": 0,
             "repetitions": 0,
-            "next_review_at": timezone.now(),  # due now -> immediately reviewable
+            "next_review_at": start_of_review_day(timezone.now(), 1),  # first quiz tomorrow
         },
     )
     # `created` lets the client show the review popup only the first time (option 2): once the

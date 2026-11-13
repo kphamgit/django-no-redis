@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 from decouple import config, Csv
 
@@ -181,9 +182,12 @@ else:
     R_CONN = redis.Redis(host='localhost', port=6379, db=0)
 """
 
+# Local: DATABASE_URL comes from .env. Heroku: set automatically by Heroku Postgres.
+if not os.getenv("DATABASE_URL"):
+    raise ImproperlyConfigured("DATABASE_URL is not set (add it to .env for local development).")
+
 DATABASES = {
     'default': dj_database_url.config(
-        default='postgres://kevinpham:ttrami120110@localhost:5432/fullstack1',
         conn_max_age=600,  # Optional: enable connection pooling
         ssl_require=False  # Set to True if your production database requires SSL
     )
