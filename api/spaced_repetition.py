@@ -99,23 +99,24 @@ TIMEOUT = "timeout"
 
 
 def grade_answer(correct, choice, latency_ms):
-    """Return (quality, reason) for one multiple-choice answer.
+    """Return (result, quality, reason) for one multiple-choice answer.
 
     Args:
         correct: whether the chosen option is the card's definition.
         choice: the option key, or DONT_KNOW / TIMEOUT.
         latency_ms: time from options shown to answer, as measured by the client.
 
+    result is one of "correct" / "wrong" / DONT_KNOW / TIMEOUT (ReviewLog.result).
     reason is a human-readable explanation of the grade, shown after answering.
     """
     seconds = latency_ms / 1000
     if choice == DONT_KNOW:
-        return 2, "You chose \"I don't know\" → grade 2."
+        return DONT_KNOW, 2, "You chose \"I don't know\" → grade 2."
     if choice == TIMEOUT or latency_ms > ANSWER_TIME_LIMIT_MS:
-        return 1, f"No answer within the {ANSWER_TIME_LIMIT_MS // 1000} s limit → grade 1."
+        return TIMEOUT, 1, f"No answer within the {ANSWER_TIME_LIMIT_MS // 1000} s limit → grade 1."
     if not correct:
-        return 1, f"Wrong answer after {seconds:.1f} s → grade 1."
+        return "wrong", 1, f"Wrong answer after {seconds:.1f} s → grade 1."
     if latency_ms < FAST_ANSWER_MS:
-        return 5, f"Correct in {seconds:.1f} s, under the {FAST_ANSWER_MS // 1000} s \"fast\" mark → grade 5."
-    return 4, (f"Correct in {seconds:.1f} s, slower than the {FAST_ANSWER_MS // 1000} s \"fast\" mark "
-               f"but within the {ANSWER_TIME_LIMIT_MS // 1000} s limit → grade 4.")
+        return "correct", 5, f"Correct in {seconds:.1f} s, under the {FAST_ANSWER_MS // 1000} s \"fast\" mark → grade 5."
+    return "correct", 4, (f"Correct in {seconds:.1f} s, slower than the {FAST_ANSWER_MS // 1000} s \"fast\" mark "
+                          f"but within the {ANSWER_TIME_LIMIT_MS // 1000} s limit → grade 4.")

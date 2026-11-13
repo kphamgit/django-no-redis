@@ -98,6 +98,7 @@ urlpatterns = [
     path("cards/all/", views.get_all_cards_for_user, name="all-cards"),
     path("cards/<int:card_id>/question/", views.get_card_question, name="card-question"),
     path("cards/<int:card_id>/answer/", views.answer_card, name="answer-card"),
+    path("cards/review-log/", views.get_review_log, name="card-review-log"),
     path("cards/<int:card_id>/add-to-review/", views.add_card_to_review, name="add-card-to-review"),
     path("cards/from-sense/<int:sense_id>/add-to-review/", views.add_sense_card_to_review, name="sense-card-add-to-review"),
     path("cards/check-senses/", views.check_cards_for_senses, name="check-cards-for-senses"),

@@ -153,6 +153,37 @@ class CardReview(models.Model):
         return f"{self.user.username} - {self.card.text} (next: {self.next_review_at})"
 
 
+class ReviewLog(models.Model):
+    # One row per multiple-choice answer in the vocabulary review (written by answer_card),
+    # including practice repeats of missed cards. Shown to staff in the admin app.
+    RESULT_CHOICES = [
+        ("correct", "Correct"),
+        ("wrong", "Wrong"),
+        ("dont_know", "I don't know"),
+        ("timeout", "Timed out"),
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="review_logs")
+    card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="review_logs")
+    answered_at = models.DateTimeField(auto_now_add=True)
+    result = models.CharField(max_length=20, choices=RESULT_CHOICES)
+    chosen_definition = models.TextField(blank=True, default="")  # the wrong option picked, if any
+    latency_ms = models.IntegerField()           # options shown -> answer (client-measured)
+    quality = models.SmallIntegerField()         # SM-2 grade 0..5
+    graded = models.BooleanField()               # False = practice (card already graded that day)
+    # The card's schedule right after this answer (unchanged by a practice answer).
+    interval_days = models.IntegerField()
+    easiness = models.FloatField()
+    # The time limits in force when answering, so old rows stay readable if they're retuned.
+    time_limit_ms = models.IntegerField()
+    fast_answer_ms = models.IntegerField()
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "-answered_at"])]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.card.text}: {self.result} q{self.quality} ({self.answered_at})"
+
+
 class Assignment(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="assignments")
     category_id = models.IntegerField(null=True, blank=True)

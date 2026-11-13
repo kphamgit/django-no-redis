@@ -8,7 +8,7 @@ from api.serializers import UserSerializer, LevelWithCategoriesSerializer, \
      UnitWithQuizzesSerializer, QuizAttemptSerializer, QuizDetailSerializer, QuestionAttemptSerializer, CardSerializer
 from english.serializers import QuestionSerializer, UnitSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent, Card, CardReview
+from .models import Unit, Quiz, Question, QuizAttempt, QuestionAttempt, Level, Assignment, AssignmentStudent, Card, CardReview, ReviewLog
 from rest_framework.decorators import api_view
 from api.utils import check_answer
 
@@ -2357,12 +2357,15 @@ def _build_question(card, user, pool):
     return {"nonce": nonce, "options": options}
 
 
-def _serialize_due_card(card, review, user, pool):
-    """Build the API payload for one due card. The correct definition is NOT included: it's
-    returned by answer_card once the student has answered."""
+def _serialize_due_card(card, review, user, pool, include_definition=False):
+    """Build the API payload for one due card. For the student the correct definition is NOT
+    included (answer_card returns it once they've answered); include_definition is for staff
+    viewing another user's due cards (the admin app's DueCardsModal)."""
+    extra = {"definition": card.definition} if include_definition else {}
     return {
         "id": card.id,
         "text": card.text,                 # front (the word)
+        **extra,
         "part_of_speech": card.part_of_speech,
         **_build_question(card, user, pool),  # nonce + shuffled options
         "easiness": review.easiness if review else 2.5,
@@ -2474,7 +2477,8 @@ def get_all_due_cards(request):
             continue
         is_due = review.next_review_at is None or review.next_review_at <= now
         if is_due:
-            due_cards.append(_serialize_due_card(review.card, review, target_user, pool))
+            due_cards.append(_serialize_due_card(review.card, review, target_user, pool,
+                                                 include_definition=target_user != request.user))
 
     # The time limits come from here so the frontend countdown matches the backend grading.
     return Response({"due_cards": due_cards,
@@ -2529,8 +2533,11 @@ def get_card_question(request, card_id):
 def answer_card(request, card_id):
     """Check and grade a multiple-choice answer on the server.
 
-    Body: {"nonce": str, "choice": <option key> | "dont_know" | "timeout", "latency_ms": int}
+    Body: {"nonce": str, "choice": <option key> | "dont_know" | "timeout", "latency_ms": int,
+           "chosen_definition": str}
     latency_ms is the time from the options appearing to the answer, measured by the client.
+    chosen_definition is the text of the picked option. It's only recorded in the ReviewLog
+    (for a wrong answer, so teachers can see which meaning was confused); grading never uses it.
 
     Only an answer to a DUE card is graded (apply_sm2). Grading moves the card to tomorrow or
     later, so any further answer that day -- a missed card shown again in the same session --
@@ -2555,7 +2562,7 @@ def answer_card(request, card_id):
 
     correct_key = _correct_option_key(request.user.id, card.id, nonce)
     correct = constant_time_compare(choice, correct_key)
-    quality, reason = grade_answer(correct, choice, latency_ms)
+    result, quality, reason = grade_answer(correct, choice, latency_ms)
 
     review, _ = CardReview.objects.get_or_create(
         user=request.user,
@@ -2571,6 +2578,20 @@ def answer_card(request, card_id):
     else:
         reason += " Practice only: this card was already graded today."
 
+    ReviewLog.objects.create(
+        user=request.user,
+        card=card,
+        result=result,
+        chosen_definition=str(request.data.get('chosen_definition') or '')[:2000] if result == "wrong" else "",
+        latency_ms=latency_ms,
+        quality=quality,
+        graded=graded,
+        interval_days=review.interval,
+        easiness=review.easiness,
+        time_limit_ms=ANSWER_TIME_LIMIT_MS,
+        fast_answer_ms=FAST_ANSWER_MS,
+    )
+
     return Response({
         "graded": graded,
         "correct": correct,
@@ -2580,6 +2601,42 @@ def answer_card(request, card_id):
         "reason": reason,
         "lapsed": quality < 4,
     })
+
+
+REVIEW_LOG_LIMIT = 500
+
+
+@api_view(["GET"])
+def get_review_log(request):
+    """A student's review answers, newest first (at most REVIEW_LOG_LIMIT). Staff only
+    (used by the admin Users table). Query params: user_id (required), card_id (optional)."""
+    if not request.user.is_staff:
+        return Response({"error": "Not authorized to view review logs."}, status=403)
+    user_id = request.query_params.get('user_id')
+    if not user_id:
+        return Response({"error": "user_id is required."}, status=400)
+    logs = ReviewLog.objects.filter(user_id=user_id).select_related('card')
+    card_id = request.query_params.get('card_id')
+    if card_id:
+        logs = logs.filter(card_id=card_id)
+    entries = [{
+        "id": log.id,
+        "answered_at": log.answered_at,
+        "card_id": log.card_id,
+        "text": log.card.text,
+        "part_of_speech": log.card.part_of_speech,
+        "definition": log.card.definition,
+        "result": log.result,
+        "chosen_definition": log.chosen_definition,
+        "latency_ms": log.latency_ms,
+        "quality": log.quality,
+        "graded": log.graded,
+        "interval_days": log.interval_days,
+        "easiness": log.easiness,
+        "time_limit_ms": log.time_limit_ms,
+        "fast_answer_ms": log.fast_answer_ms,
+    } for log in logs.order_by('-answered_at')[:REVIEW_LOG_LIMIT]]
+    return Response({"entries": entries, "limit": REVIEW_LOG_LIMIT})
 
 
 # When a student adds a card to their review, schedule its first review this many days
