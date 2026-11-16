@@ -20,6 +20,7 @@ from decouple import config, Csv
 
 
 import os
+from urllib.parse import urlsplit
 import redis
 
 
@@ -53,9 +54,9 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 #print ALLOWED_HOSTS (which comes from .env) for debugging
 print("ALLOWED_HOSTS:", ALLOWED_HOSTS)
 
-# NOTE: CORS_ALLOWED_ORIGINS is defined once, as a hardcoded list further below
-# (search "CORS_ALLOWED_ORIGINS = ["). It is NOT read from an env var, so adding
-# a domain means editing that list (and CSRF_TRUSTED_ORIGINS) here.
+# NOTE: CORS_ALLOWED_ORIGINS (and CSRF_TRUSTED_ORIGINS, built from it) come from the
+# CORS_ALLOWED_ORIGINS env var: Heroku config vars in production, .env locally.
+# Search "CORS_ALLOWED_ORIGINS =" below.
 
 # Application definition
 
@@ -215,23 +216,24 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Single source of truth for allowed CORS origins (NOT from an env var). To add a
-# domain, add its full origin here (with https://) AND to CSRF_TRUSTED_ORIGINS below.
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5174",  # Your frontend's origin
-    "http://localhost:5175", 
-    "http://localhost:5173",
-    'https://phuyenenglish.com',
-    'https://www.phuyenenglish.com',   # in HEROKU, need this to avoid error when connecting web socket with wss. Feb 4, 2026, kpham
-    'https://phuyenenglish.net',
-    'https://www.phuyenenglish.net',
-    "https://wwww.tienganhphuyen.com",
-    "https://tienganhphuyen.com",
-    "https://wwww.kevinphamenglish.com",
-    "https://kevinphamenglish.com",
-    "https://magnificent-figolla-d3b835.netlify.app",
-    "https://magnificent-custard-cc8e68.netlify.com",
-]
+# Single source of truth for allowed frontend origins: the CORS_ALLOWED_ORIGINS env var
+# (Heroku config var in production, .env locally), comma-separated full origins, e.g.
+#   CORS_ALLOWED_ORIGINS=https://phuyenenglish.com,https://www.phuyenenglish.com
+# Changing the Heroku config var restarts the app; no code change or deploy needed.
+def _origins_from_env(name):
+    # A missing var stops startup (decouple raises UndefinedValueError).
+    origins = [origin for origin in config(name, cast=Csv()) if origin]
+    for origin in origins:
+        parts = urlsplit(origin)
+        # django-cors-headers only checks the format in `manage.py check`, not under gunicorn,
+        # and a bad entry (no scheme, trailing slash) would otherwise just never match.
+        if parts.scheme not in ('http', 'https') or not parts.netloc or parts.path or parts.query or parts.fragment:
+            raise ImproperlyConfigured(
+                f"{name}: {origin!r} must be a full origin like https://example.com "
+                "(with http:// or https://, no trailing slash or path)")
+    return origins
+
+CORS_ALLOWED_ORIGINS = _origins_from_env('CORS_ALLOWED_ORIGINS')
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -244,22 +246,8 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://ws-redis-server-b7141d12dbc0.herokuapp.com/',
-    'https://phuyenenglish.com',
-    'https://www.phuyenenglish.com',
-    'https://phuyenenglish.net',
-    'https://www.phuyenenglish.net',
-    'https://tienganhphuyen.com',
-    'https://www.tienganhphuyen.com',
-    'https://kevinphamenglish.com',
-    'https://www.kevinphamenglish.com',
-    'https://magnificent-figolla-d3b835.netlify.app',
-    'https://magnificent-custard-cc8e68.netlify.com',
-    'http://localhost:5174',
-    'http://localhost:5173',
-    'http://127.0.0.1:8000',
-]
+# The same frontends make the POST/PATCH requests that Django's CSRF check verifies.
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
