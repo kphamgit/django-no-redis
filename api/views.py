@@ -364,6 +364,53 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
 
+@api_view(["GET"])
+def eleven_lab_voices(request):
+    """The ElevenLabs voices in VOICES, for a voice picker: [{name, description}, ...]."""
+    return JsonResponse(
+        {"voices": [{"name": name, "description": v["description"]} for name, v in VOICES.items()]}
+    )
+
+
+@api_view(["POST"])
+def eleven_lab_tts(request):
+    """Generates ElevenLabs TTS and returns the MP3 itself (Content-Type: audio/mpeg), without
+    saving it anywhere. Teacher (staff) only, since every call uses ElevenLabs credits.
+    Body (JSON): text, voice_name (a key of VOICES, default "River"),
+    speed (0.7-1.2, ElevenLabs' range; default 1.0).
+    Returns JSON {error: ...} on failure."""
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    data = request.data
+    text = (data.get("text") or "").strip()
+    if not text:
+        return JsonResponse({"error": "No text provided."}, status=400)
+    voice_name = data.get("voice_name") or "River"
+    voice = VOICES.get(voice_name)
+    if voice is None:
+        return JsonResponse({"error": f"Unknown voice '{voice_name}'."}, status=400)
+    try:
+        speed = float(data.get("speed", 1.0))
+    except (TypeError, ValueError):
+        speed = 1.0
+    speed = max(0.7, min(1.2, speed))  # clamp to ElevenLabs' allowed range
+
+    try:
+        audio_iterator = eleven_client.text_to_speech.convert(
+            text=text,
+            voice_id=voice["voice_id"],
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
+            voice_settings=VoiceSettings(speed=speed),
+        )
+        audio = b"".join(chunk for chunk in audio_iterator if chunk)
+        from django.http import HttpResponse
+        return HttpResponse(audio, content_type="audio/mpeg")
+    except Exception as e:
+        print("eleven_lab_tts failed:", e)
+        return JsonResponse({"error": str(e)}, status=502)
+
+
 @csrf_exempt
 def upload_audio(request):
   # 1. Initialize the S3 client using your Django settings

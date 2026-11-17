@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import shadowing_views
 from django.http import JsonResponse
 from english import views as english_views
 
@@ -47,6 +48,13 @@ urlpatterns = [
     path("upload-audio/", views.upload_audio, name="upload-audio"),
    
     path("create_eleven_lab_audio/", views.generate_eleven_lab_audio_and_save_to_azure, name='generate_save_eleven_lab_audio_to_azure'),
+    # ElevenLabs audio returned directly (not saved), e.g. the teacher's Shadowing reference
+    path("eleven_lab_voices/", views.eleven_lab_voices, name="eleven-lab-voices"),
+    path("eleven_lab_tts/", views.eleven_lab_tts, name="eleven-lab-tts"),
+    # Shadowing: teacher sends a reference, students' recordings are scored by VoiceAnalyzer_Claude
+    path("shadowing/send/", shadowing_views.shadowing_send, name="shadowing-send"),
+    path("shadowing/assess/", shadowing_views.shadowing_assess, name="shadowing-assess"),
+    path("shadowing/results/", shadowing_views.shadowing_results, name="shadowing-results"),
   
     #Microsoft Azure Text-to-Speech
     path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),
