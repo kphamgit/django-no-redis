@@ -22,7 +22,10 @@ from rest_framework.decorators import api_view
 from english.utils import get_s3_audio_url
 
 # VoiceAnalyzer_Claude's evaluate endpoint. Local testing: port 8001 (Django has 8000).
+# Production: https://voice.tienganhtuyhoa.com/api/evaluate (Cloudflare Tunnel to the Mac),
+# which requires VOICE_ANALYZER_API_KEY (the same key as VoiceAnalyzer_Claude's api_key.txt).
 EVALUATE_URL = os.environ.get("VOICE_ANALYZER_EVALUATE_URL", "http://127.0.0.1:8001/api/evaluate")
+EVALUATE_API_KEY = os.environ.get("VOICE_ANALYZER_API_KEY", "")
 
 EXERCISE_TTL_SECONDS = 24 * 60 * 60
 LATEST_KEY = "shadowing:latest"  # id of the most recently sent exercise
@@ -134,6 +137,7 @@ def shadowing_assess(request):
                 "reference_file": ("reference.mp3", reference_bytes, "audio/mpeg"),
                 "recorded_file": ("recording.wav", recorded.read(), "audio/wav"),
             },
+            headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
             timeout=120,
         )
     except requests.RequestException as e:
