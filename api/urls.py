@@ -54,6 +54,7 @@ urlpatterns = [
     # Shadowing: teacher sends a reference, students' recordings are scored by VoiceAnalyzer_Claude
     path("shadowing/send/", shadowing_views.shadowing_send, name="shadowing-send"),
     path("shadowing/assess/", shadowing_views.shadowing_assess, name="shadowing-assess"),
+    path("shadowing/test/", shadowing_views.shadowing_test, name="shadowing-test"),
     path("shadowing/results/", shadowing_views.shadowing_results, name="shadowing-results"),
   
     #Microsoft Azure Text-to-Speech

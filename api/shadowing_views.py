@@ -61,6 +61,56 @@ def _load_exercise(shadowing_id):
     return json.loads(raw) if raw else None
 
 
+def _options_from(data):
+    """The teacher's scoring options from a request's form fields."""
+    return {
+        "targeted_words": (data.get("targeted_words") or "").strip(),
+        "strict_connected_speech": str(data.get("strict_connected_speech", "true")).lower() == "true",
+        "fall_match_ratio": _ratio(data.get("fall_match_ratio"), 0.75),
+        "rise_match_ratio": _ratio(data.get("rise_match_ratio"), 0.5),
+    }
+
+
+def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes):
+    """Scores a recording against the reference with VoiceAnalyzer_Claude.
+    Returns (evaluation, None), or (None, a JsonResponse with the error)."""
+    content_type = "audio/wav" if reference_name.endswith(".wav") else "audio/mpeg"
+    try:
+        res = requests.post(
+            EVALUATE_URL,
+            data={
+                "spoken_text": sentence,
+                "targeted_words": options["targeted_words"],
+                "strict_connected_speech": "true" if options["strict_connected_speech"] else "false",
+                "fall_match_ratio": str(options["fall_match_ratio"]),
+                "rise_match_ratio": str(options["rise_match_ratio"]),
+            },
+            files={
+                "reference_file": (reference_name, reference_bytes, content_type),
+                "recorded_file": ("recording.wav", recorded_bytes, "audio/wav"),
+            },
+            headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
+            timeout=120,
+        )
+    except requests.RequestException as e:
+        print("shadowing: can't reach VoiceAnalyzer_Claude:", e)
+        return None, JsonResponse({"error": "Can't reach the voice assessment server."}, status=502)
+
+    try:
+        evaluation = res.json()
+    except ValueError:
+        evaluation = None
+    if not res.ok or evaluation is None:
+        # FastAPI: {detail: "..."}, or a list of problems for a rejected request.
+        detail = (evaluation or {}).get("detail") if isinstance(evaluation, dict) else None
+        if isinstance(detail, list):
+            detail = "; ".join(str(d.get("msg", d)) for d in detail)
+        return None, JsonResponse(
+            {"error": detail or f"The voice assessment failed ({res.status_code})."}, status=502
+        )
+    return evaluation, None
+
+
 @api_view(["POST"])
 def shadowing_send(request):
     """Teacher only. Multipart: reference_file (the TTS MP3), sentence, voice (label, for display),
@@ -87,12 +137,7 @@ def shadowing_send(request):
         "voice": request.data.get("voice", ""),
         "s3_key": s3_key,
         "sent_at": timezone.now().isoformat(),
-        "options": {
-            "targeted_words": (request.data.get("targeted_words") or "").strip(),
-            "strict_connected_speech": str(request.data.get("strict_connected_speech", "true")).lower() == "true",
-            "fall_match_ratio": _ratio(request.data.get("fall_match_ratio"), 0.75),
-            "rise_match_ratio": _ratio(request.data.get("rise_match_ratio"), 0.5),
-        },
+        "options": _options_from(request.data),
     }
     settings.R_CONN.set(_exercise_key(shadowing_id), json.dumps(exercise), ex=EXERCISE_TTL_SECONDS)
     settings.R_CONN.set(LATEST_KEY, shadowing_id, ex=EXERCISE_TTL_SECONDS)
@@ -122,40 +167,11 @@ def shadowing_assess(request):
     reference_bytes = _s3().get_object(
         Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=exercise["s3_key"]
     )["Body"].read()
-    options = exercise["options"]
-    try:
-        res = requests.post(
-            EVALUATE_URL,
-            data={
-                "spoken_text": exercise["sentence"],
-                "targeted_words": options["targeted_words"],
-                "strict_connected_speech": "true" if options["strict_connected_speech"] else "false",
-                "fall_match_ratio": str(options["fall_match_ratio"]),
-                "rise_match_ratio": str(options["rise_match_ratio"]),
-            },
-            files={
-                "reference_file": ("reference.mp3", reference_bytes, "audio/mpeg"),
-                "recorded_file": ("recording.wav", recorded.read(), "audio/wav"),
-            },
-            headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
-            timeout=120,
-        )
-    except requests.RequestException as e:
-        print("shadowing_assess: can't reach VoiceAnalyzer_Claude:", e)
-        return JsonResponse({"error": "Can't reach the voice assessment server."}, status=502)
-
-    try:
-        evaluation = res.json()
-    except ValueError:
-        evaluation = None
-    if not res.ok or evaluation is None:
-        # FastAPI: {detail: "..."}, or a list of problems for a rejected request.
-        detail = (evaluation or {}).get("detail") if isinstance(evaluation, dict) else None
-        if isinstance(detail, list):
-            detail = "; ".join(str(d.get("msg", d)) for d in detail)
-        return JsonResponse(
-            {"error": detail or f"The voice assessment failed ({res.status_code})."}, status=502
-        )
+    evaluation, error = _evaluate(
+        exercise["sentence"], exercise["options"], reference_bytes, "reference.mp3", recorded.read()
+    )
+    if error:
+        return error
 
     user_name = request.user.username
     results_key = _results_key(exercise["shadowing_id"])
@@ -190,3 +206,21 @@ def shadowing_results(request):
     results = sorted((json.loads(v) for v in raw.values()), key=lambda r: r["user_name"])
     exercise["audio_url"] = get_s3_audio_url(exercise["s3_key"])
     return JsonResponse({"exercise": exercise, "results": results})
+
+
+@api_view(["POST"])
+def shadowing_test(request):
+    """Teacher only: try the scoring yourself before (or without) sending to the students.
+    Multipart: reference_file (the TTS MP3), recorded_file (16 kHz mono WAV), sentence, and the
+    scoring options as in shadowing_send. Nothing is saved or relayed; returns the evaluation."""
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    reference = request.FILES.get("reference_file")
+    recorded = request.FILES.get("recorded_file")
+    sentence = (request.data.get("sentence") or "").strip()
+    if not reference or not recorded or not sentence:
+        return JsonResponse({"error": "A reference, a recording and the sentence are required."}, status=400)
+    evaluation, error = _evaluate(
+        sentence, _options_from(request.data), reference.read(), reference.name or "reference.mp3", recorded.read()
+    )
+    return error or JsonResponse(evaluation)
