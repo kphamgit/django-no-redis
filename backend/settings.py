@@ -133,6 +133,13 @@ AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
 AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
 AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME')
 
+# Folder the shadowing audio goes under in the bucket: empty on Heroku (production uses
+# audios/shadowing/, audios/shadowing_tests/, audios/shadowing_sentences/), "dev/" in a local .env,
+# so local testing writes to dev/audios/... and never mixes with production's files.
+SHADOWING_S3_ROOT = config('SHADOWING_S3_ROOT', default='')
+if SHADOWING_S3_ROOT and (not SHADOWING_S3_ROOT.endswith('/') or SHADOWING_S3_ROOT.startswith('/') or '..' in SHADOWING_S3_ROOT):
+    raise ImproperlyConfigured(f"SHADOWING_S3_ROOT: {SHADOWING_S3_ROOT!r} must look like dev/ (ending in /, not starting with /)")
+
 AWS_DEFAULT_ACL = None
 
 AZURE_STORAGE_CONNECTION_STRING=os.environ.get('AZURE_STORAGE_CONNECTION_STRING')

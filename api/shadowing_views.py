@@ -239,7 +239,7 @@ def shadowing_send(request):
         return JsonResponse({"error": "Type at least one stress word."}, status=400)
 
     shadowing_id = uuid.uuid4().hex[:12]
-    s3_key = f"audios/shadowing/{shadowing_id}.mp3"
+    s3_key = f"{settings.SHADOWING_S3_ROOT}audios/shadowing/{shadowing_id}.mp3"
     reference.seek(0)
     _s3().put_object(
         Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key, Body=reference, ContentType="audio/mpeg"
@@ -343,7 +343,7 @@ def shadowing_test(request):
     return error or JsonResponse(evaluation)
 
 
-SAVED_TESTS_PREFIX = "audios/shadowing_tests/"
+SAVED_TESTS_PREFIX = f"{settings.SHADOWING_S3_ROOT}audios/shadowing_tests/"  # dev/audios/... locally
 SAVED_TEST_FOLDER_RE = re.compile(r"[A-Za-z0-9_-]+")  # e.g. 2026-11-18_160222_991267
 
 
@@ -478,7 +478,7 @@ def shadowing_delete_saved_tests(request):
 
 # ---- Saved reference sentences (Postgres row + S3 audio) --------------------------------------
 
-SENTENCES_PREFIX = "audios/shadowing_sentences/"
+SENTENCES_PREFIX = f"{settings.SHADOWING_S3_ROOT}audios/shadowing_sentences/"  # dev/audios/... locally
 
 
 def _keywords_from(value):
@@ -592,6 +592,150 @@ def shadowing_delete_sentences(request):
     deleted = [r.id for r in rows]
     ShadowingSentence.objects.filter(id__in=deleted).delete()
     return JsonResponse({"deleted": deleted})
+
+
+def _is_sentence_key(key):
+    """A key inside the sentences folder (and nothing else in the bucket)."""
+    return isinstance(key, str) and key.startswith(SENTENCES_PREFIX) and len(key) > len(SENTENCES_PREFIX) and ".." not in key
+
+
+def _sentence_storage_json(row, obj):
+    """A saved sentence as the Manage Shadowing Sentences tab shows it: the row's metadata and the
+    S3 object its s3_key points to (obj: from list_objects_v2 / head_object, None if missing)."""
+    return {
+        "id": row.id,
+        "sentence": row.sentence,
+        "keywords": row.keywords,
+        "voice": row.voice,
+        "created_by": row.created_by.username if row.created_by else None,
+        "created_at": row.created_at.isoformat(),
+        "s3_key": row.s3_key,
+        "file": {"size": obj["Size"], "last_modified": obj["LastModified"].isoformat()} if obj else None,
+        "audio_url": get_s3_audio_url(row.s3_key) if obj else None,  # valid for an hour
+    }
+
+
+@api_view(["GET"])
+def shadowing_sentence_files(request):
+    """Teacher only: how the saved sentences are stored, for the teacher app's Manage Shadowing
+    Sentences tab. Each ShadowingSentence row (the metadata, newest first) with the S3 file its
+    s3_key points to (file is null if that file is missing from S3), and the files in S3 under
+    audios/shadowing_sentences/ that no row points to.
+    Returns {prefix (the folder, e.g. "audios/shadowing_sentences/"),
+    sentences: [{id, sentence, keywords, voice, created_by, created_at, s3_key,
+    file: {size, last_modified} | null, audio_url | null}],
+    orphan_files: [{key, size, last_modified, url}]}."""
+    from .models import ShadowingSentence
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    objects = {
+        o["Key"]: o
+        for page in _s3().get_paginator("list_objects_v2").paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=SENTENCES_PREFIX
+        )
+        for o in page.get("Contents", [])
+    }
+    sentences = [
+        _sentence_storage_json(row, objects.pop(row.s3_key, None))
+        for row in ShadowingSentence.objects.select_related("created_by")  # newest first (Meta.ordering)
+    ]
+    orphan_files = [
+        {
+            "key": o["Key"],
+            "size": o["Size"],
+            "last_modified": o["LastModified"].isoformat(),
+            "url": get_s3_audio_url(o["Key"]),
+        }
+        for o in sorted(objects.values(), key=lambda o: o["LastModified"], reverse=True)
+    ]
+    return JsonResponse({"prefix": SENTENCES_PREFIX, "sentences": sentences, "orphan_files": orphan_files})
+
+
+@api_view(["POST"])
+def shadowing_recognize_file(request):
+    """Teacher only. JSON {s3_key}: transcribes a file under audios/shadowing_sentences/ that no
+    saved sentence points to yet (OpenAI Whisper, English) and saves the transcript as a new saved
+    sentence (ShadowingSentence row) for it, with no keywords. The row is dated when the file was
+    uploaded, so it sorts with the others by save time.
+    Returns the new saved sentence (as in shadowing_sentence_files)."""
+    from openai import OpenAI
+
+    from .models import ShadowingSentence
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    s3_key = request.data.get("s3_key")
+    if not _is_sentence_key(s3_key):
+        return JsonResponse({"error": "Invalid file name."}, status=400)
+    if ShadowingSentence.objects.filter(s3_key=s3_key).exists():
+        return JsonResponse({"error": "That file already has a saved sentence. Click Refresh."}, status=409)
+    try:
+        obj = _s3().get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key)
+        audio = obj["Body"].read()
+    except Exception as e:
+        print("shadowing_recognize_file: can't read", s3_key, e)
+        return JsonResponse({"error": "That file is no longer in S3. Click Refresh."}, status=404)
+    try:
+        transcription = OpenAI(api_key=os.getenv("OPENAI_API_KEY")).audio.transcriptions.create(
+            model="whisper-1",
+            file=(s3_key.rsplit("/", 1)[-1], audio, obj.get("ContentType") or "audio/mpeg"),
+            language="en",  # force English, so short audio isn't taken for another language
+        )
+    except Exception as e:
+        print("shadowing_recognize_file: transcription failed for", s3_key, e)
+        return JsonResponse({"error": "The transcription service failed. Try again."}, status=502)
+    sentence = _clean_sentence(transcription.text)
+    if not sentence:
+        return JsonResponse({"error": "No speech was recognized in that file."}, status=422)
+    row = ShadowingSentence.objects.create(sentence=sentence, s3_key=s3_key, created_by=request.user)
+    # created_at is auto_now_add, so it can only be changed after the row is created.
+    ShadowingSentence.objects.filter(id=row.id).update(created_at=obj["LastModified"])
+    row.refresh_from_db()
+    return JsonResponse(_sentence_storage_json(row, {"Size": obj["ContentLength"], "LastModified": obj["LastModified"]}))
+
+
+@api_view(["POST"])
+def shadowing_set_sentence_keywords(request):
+    """Teacher only. JSON {id, keywords}: replaces a saved sentence's keywords ("apology, average"
+    or a list; cleaned as when saving). Returns {id, keywords}."""
+    from .models import ShadowingSentence
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    row = ShadowingSentence.objects.filter(id=request.data.get("id")).first() if isinstance(request.data.get("id"), int) else None
+    if row is None:
+        return JsonResponse({"error": "That saved sentence no longer exists. Click Refresh."}, status=404)
+    row.keywords = _keywords_from(request.data.get("keywords"))
+    row.save(update_fields=["keywords"])
+    return JsonResponse({"id": row.id, "keywords": row.keywords})
+
+
+@api_view(["POST"])
+def shadowing_delete_sentence_files(request):
+    """Teacher only. JSON {keys: [...]}: deletes those files from S3 (keys as listed by
+    shadowing_sentence_files) and the saved sentences whose s3_key they are.
+    Returns {deleted: [...keys], sentences_deleted: n}."""
+    from .models import ShadowingSentence
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    keys = request.data.get("keys") or []
+    if not isinstance(keys, list) or not keys:
+        return JsonResponse({"error": "No files were given."}, status=400)
+    # Only keys inside the sentences folder, so nothing else in the bucket can be deleted.
+    if not all(_is_sentence_key(k) for k in keys):
+        return JsonResponse({"error": "Invalid file name."}, status=400)
+    keys = list(dict.fromkeys(keys))
+    s3 = _s3()
+    for i in range(0, len(keys), 1000):  # delete_objects takes at most 1000 keys
+        s3.delete_objects(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Delete={"Objects": [{"Key": k} for k in keys[i:i + 1000]], "Quiet": True},
+        )
+    _, deleted_per_model = ShadowingSentence.objects.filter(s3_key__in=keys).delete()
+    sentences_deleted = deleted_per_model.get(ShadowingSentence._meta.label, 0)
+    return JsonResponse({"deleted": keys, "sentences_deleted": sentences_deleted})
 
 
 @api_view(["GET"])
