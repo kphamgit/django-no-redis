@@ -107,6 +107,9 @@ def _options_from(data):
         "stress_contrast_ratio": _ratio(data.get("stress_contrast_ratio"), 0.6),
         # Melody of each stress word: the shape similarity needed for "Same melody" (0.1-0.9).
         "melody_min_similarity": max(0.1, min(0.9, _ratio(data.get("melody_min_similarity"), 0.35))),
+        # Which syllable should be stressed: "dictionary" (CMU, the reference audio as fallback,
+        # e.g. at the end of a Yes/No question) or "reference" (the reference audio).
+        "stress_source": "reference" if data.get("stress_source") == "reference" else "dictionary",
     }
 
 
@@ -128,6 +131,7 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
                 "stress_words": options.get("stress_words", ""),
                 "stress_contrast_ratio": str(options.get("stress_contrast_ratio", 0.6)),
                 "melody_min_similarity": str(options.get("melody_min_similarity", 0.35)),
+                "stress_source": options.get("stress_source", "dictionary"),
             },
             files={
                 "reference_file": (reference_name, reference_bytes, content_type),
@@ -153,7 +157,31 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
             {"error": detail or f"The voice assessment failed ({res.status_code})."}, status=502
         )
     _add_hyphenation(evaluation)
+    _add_cmu_arpabet(evaluation)
     return evaluation, None
+
+
+def _add_cmu_arpabet(evaluation):
+    """Adds "cmu_arpabet": each word of the sentence with its CMU dictionary ARPAbet and the
+    dictionary's own stress digits (1 = primary, 2 = secondary, 0 = unstressed), e.g.
+    {"word": "basketball", "arpabet": "B AE1 S K AH0 T B AO2 L"} (arpabet None if not in the
+    dictionary). The analyzer renumbers the digits (3/1/0) and unstresses function words, so the
+    teacher's Sounds row shows these instead. Same cmudict package and first pronunciation as
+    the analyzer."""
+    from english.utils import syllabify
+
+    words = ((evaluation or {}).get("stage1_cmu") or {}).get("words") or []
+    out = []
+    for w in words:
+        word = str(w.get("word", ""))
+        try:
+            found = syllabify(word)
+            out.append({"word": word, "arpabet": " ".join(found["phonemes"]) if found["found"] else None})
+        except Exception as e:  # never let the dictionary break a result
+            print("shadowing: CMU lookup failed for", word, e)
+            out.append({"word": word, "arpabet": None})
+    if evaluation is not None:
+        evaluation["cmu_arpabet"] = out
 
 
 def _hyphenated_syllables(word, syllable_count, stressed):
@@ -178,11 +206,14 @@ def _add_hyphenation(evaluation):
     """Adds "hyphenated" (the syllables as spelled, e.g. ["bas", "ket", "ball"], or None) to
     each stress word of the Word Syllables Stress Check, for the result tables."""
     for w in ((evaluation or {}).get("word_stress_check") or {}).get("words") or []:
-        pattern = (w.get("reference_pattern") or w.get("recorded_pattern") or "").split()
+        pattern = (w.get("expected_pattern") or w.get("reference_pattern") or w.get("recorded_pattern") or "").split()
         count = w.get("syllable_count") or len(pattern)
         try:
             w["hyphenated"] = (
-                _hyphenated_syllables(str(w.get("word", "")).lower(), count, w.get("reference_stressed_syllable"))
+                _hyphenated_syllables(
+                    str(w.get("word", "")).lower(), count,
+                    w.get("expected_stressed_syllable") or w.get("reference_stressed_syllable"),
+                )
                 if count and count > 1 else None
             )
         except Exception as e:  # never let the dictionary break a result
@@ -195,7 +226,7 @@ def shadowing_send(request):
     """Teacher only. Multipart: reference_file (the TTS MP3), sentence, voice (label, for display),
     tts_provider / tts_voice / tts_speed / tts_ssml_rate (kept as "tts"),
     targeted_words, strict_connected_speech ("true"/"false"), fall_match_ratio, rise_match_ratio,
-    link_tolerance, stress_words, stress_contrast_ratio, melody_min_similarity.
+    link_tolerance, stress_words, stress_contrast_ratio, melody_min_similarity, stress_source.
     Saves the reference to S3 and the exercise to Redis, then announces it to the students.
     Returns {shadowing_id, audio_url}."""
     if not request.user.is_staff:
