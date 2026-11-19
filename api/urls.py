@@ -51,11 +51,20 @@ urlpatterns = [
     # ElevenLabs audio returned directly (not saved), e.g. the teacher's Shadowing reference
     path("eleven_lab_voices/", views.eleven_lab_voices, name="eleven-lab-voices"),
     path("eleven_lab_tts/", views.eleven_lab_tts, name="eleven-lab-tts"),
+    # Amazon Polly (neural) audio returned directly, for the teacher's Shadowing reference
+    path("polly_tts/", views.polly_tts, name="polly-tts"),
     # Shadowing: teacher sends a reference, students' recordings are scored by VoiceAnalyzer_Claude
     path("shadowing/send/", shadowing_views.shadowing_send, name="shadowing-send"),
     path("shadowing/assess/", shadowing_views.shadowing_assess, name="shadowing-assess"),
     path("shadowing/test/", shadowing_views.shadowing_test, name="shadowing-test"),
+    path("shadowing/save_test/", shadowing_views.shadowing_save_test, name="shadowing-save-test"),
+    path("shadowing/saved_tests/", shadowing_views.shadowing_saved_tests, name="shadowing-saved-tests"),
+    path("shadowing/delete_saved_tests/", shadowing_views.shadowing_delete_saved_tests, name="shadowing-delete-saved-tests"),
     path("shadowing/results/", shadowing_views.shadowing_results, name="shadowing-results"),
+    path("shadowing/save_sentence/", shadowing_views.shadowing_save_sentence, name="shadowing-save-sentence"),
+    path("shadowing/sentences/", shadowing_views.shadowing_sentences, name="shadowing-sentences"),
+    path("shadowing/delete_sentences/", shadowing_views.shadowing_delete_sentences, name="shadowing-delete-sentences"),
+    path("shadowing/sentence_audio/<int:sentence_id>/", shadowing_views.shadowing_sentence_audio, name="shadowing-sentence-audio"),
   
     #Microsoft Azure Text-to-Speech
     path("create-azure-audio/", views.create_azure_audio, name="create-azure-audio"),

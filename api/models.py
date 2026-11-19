@@ -2,6 +2,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MaxValueValidator
+from django.contrib.postgres.fields import ArrayField
 
 
 class Profile(models.Model):
@@ -265,3 +266,23 @@ class Example(models.Model):
         return f"{self.sense.lcode_entry.head_word} - Example {self.example_number}"
     
     
+
+class ShadowingSentence(models.Model):
+    """A reference sentence the teacher liked enough to keep (Shadowing panel, "Save sentence").
+    The audio is in S3 at s3_key (audios/shadowing_sentences/<folder>/reference.mp3); this row
+    makes it searchable by its words and the teacher's keywords."""
+    sentence = models.TextField()  # the words only (markup removed), as students see it
+    tts_text = models.TextField(blank=True, default="")  # the SSML, if the audio was made from one
+    keywords = ArrayField(models.CharField(max_length=50), default=list, blank=True)  # lower-case
+    s3_key = models.CharField(max_length=255)
+    voice = models.CharField(max_length=120, blank=True, default="")  # label, e.g. "11L Matilda · 0.7×"
+    tts = models.JSONField(default=dict, blank=True)      # {provider, voice, speed, ssml_rate}
+    options = models.JSONField(default=dict, blank=True)  # scoring options set when it was saved
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.sentence[:60]

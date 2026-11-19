@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',  # ArrayField (ShadowingSentence.keywords)
     'rest_framework',
     'corsheaders',
     'django_extensions'

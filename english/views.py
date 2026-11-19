@@ -33,13 +33,10 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.views.decorators.csrf import get_token
 
 class CategoryCreateView(generics.CreateAPIView):
-    #print("********* CategoryCreateView called")
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
     queryset = Category.objects.all()  # Add this line
-    #print("********* CategoryCreateView called")
     def perform_create(self, serializer):
-        #print("********* CategoryCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 category_number=self.request.data.get('category_number'),
@@ -49,7 +46,6 @@ class CategoryCreateView(generics.CreateAPIView):
             print(serializer.errors)
 
 class ExampleCreateView(generics.CreateAPIView):
-    #print("********* CategoryCreateView called")
     """
     sense_id: senseId, sentence 
     
@@ -57,9 +53,7 @@ class ExampleCreateView(generics.CreateAPIView):
     serializer_class = ExampleSerializer
     permission_classes = [IsAuthenticated]
     queryset = Example.objects.all()  # Add this line
-    #print("********* CategoryCreateView called")
     def perform_create(self, serializer):
-        print("********* ExampleCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 sense_id=self.request.data.get('sense_id'),
@@ -107,17 +101,14 @@ class UserCreateView(generics.CreateAPIView):
 class CategoryListView(generics.ListAPIView):
     serializer_class = CategorySerializer  # Use the serializer with sub_categories by default
     permission_classes = [IsAuthenticated]
-    #print("ENGLISH CategoryListView ****** called")
     def get_queryset(self):
         # Fetch all categories, prefetching sub_categories for optimization, filter by pk
         pk = self.kwargs.get('pk')
-        #print("ENGLISH CategoryListView ****** called, pk", pk)
         return Category.objects.filter(level_id=pk).order_by('category_number')
 
 class UnitListView(generics.ListAPIView):
     serializer_class = UnitSerializer  # Use the serializer with sub_categories by default
     permission_classes = [IsAuthenticated]
-    #print("ENLGISH UnitListView ****** called")
     def get_queryset(self):
         pk = self.kwargs.get('pk')
         # Fetch all categories, prefetching sub_categories for optimization
@@ -126,7 +117,6 @@ class UnitListView(generics.ListAPIView):
 class QuizListView(generics.ListAPIView):
     serializer_class = QuizSerializer  # Use the serializer with sub_categories by default
     permission_classes = [IsAuthenticated]
-    #print("ENLGISH QuizListView ****** called")
     def get_queryset(self):
         # Fetch all categories, prefetching sub_categories for optimization
         pk = self.kwargs.get('pk')
@@ -140,8 +130,6 @@ class VideoSegmentListView(generics.ListAPIView):
     def get_queryset(self):
         pk = self.kwargs.get('pk')
         query_set = VideoSegment.objects.filter(quiz_id=pk).prefetch_related('video_segment_questions').order_by('segment_number')
-        #print("VideoSegmentListView get_queryset, SQL Query:", query_set.query)  # Debugging SQL query
-        #print("VideoSegmentListView get_queryset, query_set:", query_set)
         return query_set
 
 class QuestionListView(generics.ListAPIView):
@@ -160,13 +148,11 @@ class QuestionPartialListView(generics.GenericAPIView):
 
     
     def post(self, request, *args, **kwargs):
-        print(" ******* QuestionPartialListView called.........")
         pk = self.kwargs.get('pk')
         # starting_question_number = self.kwargs.get('starting_question_number')
         
         data = json.loads(request.body)
         quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
-        # print("Received quiz_attempt_id:", quiz_attempt_id)
         
         questions = Question.objects.filter(
             quiz_id=pk,
@@ -184,7 +170,6 @@ class QuestionPartialListView(generics.GenericAPIView):
                 quiz_attempt = QuizAttempt.objects.get(id=quiz_attempt_id)
                 # retrieve errorneous question attempts for this quiz attempt
                 erroneous_question_attempts = quiz_attempt.errorneous_questions.split(",") if quiz_attempt.errorneous_questions else []
-                # print(f"No more questions, but Quiz attempt {quiz_attempt_id} has erroneous questions: {erroneous_question_attempts}")
                 
                 
             except QuizAttempt.DoesNotExist:
@@ -201,16 +186,12 @@ class QuestionRangeListView(generics.GenericAPIView):
 
     
     def post(self, request, *args, **kwargs):
-        print(" ******* QuestionPartialListView called.........")
         pk = self.kwargs.get('pk')
         starting_question_number = self.kwargs.get('starting_question_number')
-        print("QuestionRangeListView, starting_question_number:", starting_question_number)
         number_of_questions = self.kwargs.get('number_of_questions')
-        # print("QuestionRangeListView, number_of_questions:", number_of_questions)
         
         #data = json.loads(request.body)
         #quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
-        # print("Received quiz_attempt_id:", quiz_attempt_id)
         
         questions = Question.objects.filter(
             quiz_id=pk,
@@ -232,11 +213,9 @@ class QuestionCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     
     def perform_create(self, serializer):
-        #print("QuestionCreateView, perform_create, request data:", self.request.data)
         if serializer.is_valid():
             #serializer.save()
             #kpham: NO NEED for explicit fields since all are included in serializer
-            print(" content_language in request data:", self.request.data.get('content_language', 'en'))
             # "Insert after": make room for the new question by shifting every question in
             # this quiz whose number is >= the requested number up by 1, so there are no
             # duplicate question_numbers. (For an append, the requested number is beyond all
@@ -265,9 +244,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
                 #print ("QuestionCreateView format = 6 ") # word scramble or button_select
                 if self.request.data.get('content_language') in ['en', 'fr']:
                     scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
-                    #print("Scrambled words:", scrambled_words)
                     for word in scrambled_words:
-                        # print(f"**************** Creating Azure audio for word: {word}")
                         synthesize_azure_audio(word, language=self.request.data.get('content_language', 'en'))
                     
             if self.request.data.get('format') == '2':   # button_select or button_select_cloze
@@ -275,9 +252,7 @@ class QuestionCreateView(generics.ListCreateAPIView):
                     cloze_options = self.request.data.get('button_cloze_options', None)
                     if cloze_options:
                         cloze_options_list = cloze_options.split("/")
-                        #print("Cloze options:", cloze_options_list)
                         for option in cloze_options_list:
-                            # print(f"Creating Azure audio for cloze option: {option}")
                             synthesize_azure_audio(option, language=self.request.data.get('content_language', 'en'))
                         
         else:
@@ -289,7 +264,6 @@ class QuizCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("QuizCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 unit_id=self.request.data.get('unit_id'),
@@ -344,7 +318,6 @@ class VideoSegmentCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("VideoSegmentCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 quiz_id=self.request.data.get('quiz_id'),
@@ -361,9 +334,7 @@ class UnitCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        #print("UnitCreateView perform_create, request data:", self.request.data)
 
-        #print("UnitCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 category_id=self.request.data.get('category_id'),
@@ -379,7 +350,6 @@ def quiz_attempt_get_question_attempts(request, pk):
     """
     List all question attempts for a quiz attempt
     """
-    #print("quiz_attempt_get_question_attempts called with pk:", pk)
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         question_attempts = QuestionAttempt.objects.filter(quiz_attempt_id=quiz_attempt.id).order_by('id')
@@ -397,12 +367,10 @@ def quiz_attempt_list(request):
     """
     quiz_attempts = QuizAttempt.objects.all()
     serializer = QuizAttemptSerializer(quiz_attempts, many=True)
-    #print("****** quiz_attempt_list, serializer data:", serializer.data)
     return Response(serializer.data)
 
 @api_view(["DELETE"])
 def quiz_attempt_delete(request, pk):
-    #print("quiz_attempt_delete called with pk:", pk)
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         quiz_attempt.delete()
@@ -413,15 +381,11 @@ def quiz_attempt_delete(request, pk):
 @api_view(["POST"])
 def quiz_attempt_bulk_delete(request):
    
-    #print("quiz_attempt_delete called with pk:", pk)
-    #print("quiz_attempt_bulk_delete, request data:", request.data)
     # request data : {'ids': ['18']}
     ids = request.data.get('ids')
-    #print("quiz_attempt_bulk_delete, ids to delete:", ids)
     deleted_count = 0
     for quiz_attempt_id in ids:
         try:
-            #print("Deleting quiz attempt with ID:", quiz_attempt_id)
             quiz_attempt = QuizAttempt.objects.get(id=quiz_attempt_id)
             quiz_attempt.delete()
             deleted_count += 1
@@ -531,7 +495,6 @@ class CategoryCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        print("********* CategoryCreateView perform_create, request data:", self.request.data)
         if serializer.is_valid():
             serializer.save(
                 level_id=self.request.data.get('level_id'),
@@ -556,7 +519,6 @@ class LevelCreateView(generics.CreateAPIView):
 # EDIT/UPDATE VIEWS
 
 class QuestionCloneView(generics.CreateAPIView):
-    # print("QuestionCloneView called")
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -587,7 +549,6 @@ class QuestionCloneView(generics.CreateAPIView):
                 video_segment_id=original_question.video_segment_id,
                 timeout = original_question.timeout,
             )
-            print("Question cloned successfully, cloned question ID:", cloned_question.id)
             return Response(QuestionSerializer(cloned_question).data, status=201)
         
         return Response({"error": "Original question not found."}, status=404)
@@ -598,13 +559,9 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
     serializer_class = QuestionSerializer
     permission_classes = [IsAuthenticated]
     #queryset = Question.objects.filter(question_id=question_id)  # Add this line
-    #print("QuestionEditView HERE")
     def perform_update(self, serializer):
-        #print("QuestionEditView, request data:", self.request.data)  # Print the raw request data
         if serializer.is_valid():
-            #print("Serializer is valid")
             # Print the validated data that will be saved to the database
-            #print("Fields being saved to the database:", serializer.validated_data)
             # Save the validated data to the database
             # kpham: NO NEED for explicit fields since all are included in serializer
             # however, video_segment_id is nullable, so we handle it separately
@@ -615,9 +572,7 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
                 #print ("QuestionCreateView format = 6 ") # word scramble or button_select
                 if self.request.data.get('content_language') in ['en', 'fr']:
                     scrambled_words = self.request.data.get('content').split("/")  # Assuming the content is a comma-separated string of scrambled words
-                    #print("Scrambled words:", scrambled_words)
                     for word in scrambled_words:
-                        # print(f"**************** QuestionEditView Creating Azure audio for word: {word}")
                         synthesize_azure_audio(word, language=self.request.data.get('content_language', 'en'))
                     
             if self.request.data.get('format') == '2':   # button_select or button_select_cloze
@@ -625,9 +580,7 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
                     cloze_options = self.request.data.get('button_cloze_options', None)
                     if cloze_options:
                         cloze_options_list = cloze_options.split("/")
-                        #print("Cloze options:", cloze_options_list)
                         for option in cloze_options_list:
-                            # print(f"QuestionEditView Creating Azure audio for cloze option: {option}")
                             synthesize_azure_audio(option, language=self.request.data.get('content_language', 'en'))
             
 
@@ -638,8 +591,6 @@ class QuestionEditView(generics.RetrieveUpdateAPIView):
         question_id = self.kwargs.get('pk')
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = Question.objects.filter(id=question_id)
-        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
-        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
 class QuizEditView(generics.RetrieveUpdateAPIView):
@@ -647,7 +598,6 @@ class QuizEditView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
     #queryset = Question.objects.filter(question_id=question_id)  # Add this line
     def perform_update(self, serializer):
-        #print("request data:", self.request.data)
         if serializer.is_valid():
             #("Serializer is valid")
             serializer.save(
@@ -660,8 +610,6 @@ class QuizEditView(generics.RetrieveUpdateAPIView):
         quiz_id = self.kwargs.get('pk')
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = Quiz.objects.filter(id=quiz_id)
-        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
-        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
 class QuizRetrieveView(generics.RetrieveAPIView):
@@ -684,12 +632,9 @@ class LevelRetrieveView(generics.RetrieveAPIView):
     def get_queryset(self):
         level_id = self.kwargs.get('pk')
         queryset = Level.objects.filter(id=level_id).prefetch_related('categories')
-        # print("LevelRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        # print("LevelRetrieveView ******* get_queryset, queryset:", queryset)
         return queryset
    
 class CategoryRetrieveView(generics.RetrieveAPIView):
-    #print("CategoryRetrieveView called....")
     # serializer_class = LevelSerializer
     serializer_class = CategoryWithUnitsSerializer   # only return id field
     """
@@ -700,21 +645,16 @@ class CategoryRetrieveView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         category_id = self.kwargs.get('pk')
-        #print("CategoryRetrieveView ******* get_queryset called, category_id:", category_id)
         queryset = Category.objects.filter(id=category_id).prefetch_related('units')
-        #print("CategoryRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
-        #print("CategoryRetrieveView ******* get_queryset, queryset:", queryset)
         return queryset
    
 class UnitRetrieveView(generics.RetrieveAPIView):
-    # print("UnitRetrieveView called....")
     # serializer_class = LevelSerializer
     serializer_class = UnitWithQuizzesSerializer   # only return id field
 
     def get_queryset(self):
         unit_id = self.kwargs.get('pk')
         queryset = Unit.objects.filter(id=unit_id).prefetch_related('quizzes')
-        # print("UnitRetrieveView ******* get_queryset, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
    
    
@@ -741,9 +681,6 @@ class VideoSegmentRetrieveByNumberView(generics.RetrieveAPIView):
         temp_queryset = VideoSegment.objects.filter(quiz_id=quiz)
         # then we will use lookup_field to filter by segment_number
         queryset = temp_queryset.filter(segment_number=self.kwargs.get('segment_number'))
-        if settings.DEBUG:
-            print("VideoSegmentRetrieveByNumberView queryset:", list(queryset.values("id", "segment_number", "quiz_id")))
-            print("VideoSegmentRetrieveByNumberView SQL:", queryset.query)
         #segment_number = self.kwargs.get('segment_number')
         #("VideoSegmentRetrieveView ****** get_queryset, segment_number:", segment_number)
         #queryset = VideoSegment.objects.filter(segment_number=segment_number)
@@ -754,9 +691,7 @@ class VideoSegmentEditView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_update(self, serializer):
-        #print("request data:", self.request.data)
         if serializer.is_valid():
-            #print("Serializer is valid")
             serializer.save(
                 start_time=self.request.data.get('start_time'),
                 end_time=self.request.data.get('end_time'),
@@ -767,7 +702,6 @@ class VideoSegmentEditView(generics.RetrieveUpdateAPIView):
             
     def get_queryset(self):
         video_segment_id = self.kwargs.get('pk')
-        #print("VideoSegmentEditView ****** get_queryset, video_segment_id:", video_segment_id)
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = VideoSegment.objects.filter(id=video_segment_id)
         return queryset
@@ -777,9 +711,7 @@ class UnitEditView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
     #queryset = Question.objects.filter(question_id=question_id)  # Add this line
     def perform_update(self, serializer):
-        print("UnitEditView request data:", self.request.data)
         if serializer.is_valid():
-            print("Serializer is valid")
             serializer.save(
                 name=self.request.data.get('name'),
             )
@@ -790,8 +722,6 @@ class UnitEditView(generics.RetrieveUpdateAPIView):
         unit_id = self.kwargs.get('pk')
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = Unit.objects.filter(id=unit_id)
-        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
-        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
 
 
@@ -800,9 +730,7 @@ class CategoryEditView(generics.RetrieveUpdateAPIView):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
     def perform_update(self, serializer):
-        print("perform_update request data:", self.request.data)
         if serializer.is_valid():
-            print("Serializer is valid")
             serializer.save(
                 name=self.request.data.get('name'),
             )
@@ -812,17 +740,13 @@ class CategoryEditView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         category_id = self.kwargs.get('pk')
         queryset = Category.objects.filter(id=category_id)
-        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
-        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
 
 class LevelEditView(generics.RetrieveUpdateAPIView):
     serializer_class = LevelSerializer
     permission_classes = [IsAuthenticated]
     def perform_update(self, serializer):
-        print("LevelEditView request data:", self.request.data)
         if serializer.is_valid():
-            print("Serializer is valid")
             serializer.save(
                 name=self.request.data.get('name'),
             )
@@ -831,11 +755,8 @@ class LevelEditView(generics.RetrieveUpdateAPIView):
             
     def get_queryset(self):
         level_id = self.kwargs.get('pk')
-        #print("XXXXXX category_id:", category_id)
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = Level.objects.filter(id=level_id)
-        #print("LevelEditView, Filtered Questions no Prefetch:", queryset)
-        #print("LevelEditView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
     
 from rest_framework.response import Response
@@ -925,13 +846,11 @@ class VideoSegmentRenumberView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        # print("request data:", self.request.data)
         #request data: {'data_type': 'question', 'id_number_pairs': '[10,4,5,6]'}
         id_numbers = self.request.data.get('id_number_pairs')
         # Convert the string representation of the list to an actual list
         import ast
         id_numbers = ast.literal_eval(id_numbers)
-        # print("after .... conversion: id_number_pairs:", id_numbers)
       
         for index, video_segment_id in enumerate(id_numbers, start=1):  # Start numbering from 1
             #question_id = question_id
@@ -939,7 +858,6 @@ class VideoSegmentRenumberView(APIView):
                 video_segment = VideoSegment.objects.get(id=video_segment_id)
                 video_segment.segment_number = index  # Use the index as the new number
                 video_segment.save()
-                #print(f"Updated Question ID {question_id} to new number {index}")
             except VideoSegment.DoesNotExist:
                 print(f"Video Segment with ID {video_segment_id} does not exist.")
                 
@@ -949,13 +867,11 @@ class QuestionRenumberView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        # print("request data:", self.request.data)
         #request data: {'data_type': 'question', 'id_number_pairs': '[10,4,5,6]'}
         id_numbers = self.request.data.get('id_number_pairs')
         # Convert the string representation of the list to an actual list
         import ast
         id_numbers = ast.literal_eval(id_numbers)
-        # print("after .... conversion: id_number_pairs:", id_numbers)
       
         for index, question_id in enumerate(id_numbers, start=1):  # Start numbering from 1
             #question_id = question_id
@@ -963,7 +879,6 @@ class QuestionRenumberView(APIView):
                 question = Question.objects.get(id=question_id)
                 question.question_number = index  # Use the index as the new number
                 question.save()
-                # print(f"Updated Question ID {question_id} to new number {index}")
             except Question.DoesNotExist:
                 print(f"Question with ID {question_id} does not exist.")
                 
@@ -978,16 +893,13 @@ class ItemDeleteView(generics.DestroyAPIView):
     def get_queryset(self):
         id = self.kwargs.get('pk')
         # retrieve data_type from query parameters
-        # print("ItemDeleteView .... request data:", self.request)
         
         data_type = self.request.query_params.get('data_type', 'question').lower() # Default to 'question' if not provided
         #data_type = self.request.data.get('data_type', 'Question') # Default to 'Question' if not provided
         queryset = None
-        # print("ItemDeleteView get_queryset, data_type:", data_type, ", id:", id)
         if data_type == 'question':
             queryset = Question.objects.filter(id=id) 
         elif data_type == 'quiz':
-            # print("ItemDeleteView Quiz Delete .... id:", id)
             queryset = Quiz.objects.filter(id=id)
         elif data_type == 'unit':
             queryset = Unit.objects.filter(id=id)
@@ -999,7 +911,6 @@ class ItemDeleteView(generics.DestroyAPIView):
             queryset = VideoSegment.objects.filter(id=id)
             
         
-        # print("ItemDeleteView get_queryset, queryset:", queryset)
 
         return queryset
 
@@ -1020,7 +931,6 @@ class ItemDeleteView(generics.DestroyAPIView):
 
 @api_view(["POST"])
 def move_quiz(request, pk):
-    # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
     try:
         quiz = Quiz.objects.get(id=pk)
         new_unit_id = request.data.get('new_unit_id', None)
@@ -1046,26 +956,22 @@ def move_quiz(request, pk):
 @api_view(["POST"])
 def assign_quiz(request, pk):
     # print studentNames from request.data
-    # print("assign_quiz called with quiz_id:", pk, " request.data:", request.data)
     # studentNames is a string separated by commas, we convert it to a list
     user_names_str = request.data.get('studentNames', '')
     user_names = [name.strip() for name in user_names_str.split(',') if name.strip()]
     # for each student name, create a user object if it doesn't exist,
     # create an assignment object 
     # and assign it to each user in 
-    # print("move_quiz called with quiz_id:", pk, " request.data:", request.data)
     try:
         quiz = Quiz.objects.get(id=pk)
         # get the unit for the quiz
         unit = quiz.unit
         # get the category_id for the unit
         category = unit.category
-        # print("********** Quiz:", quiz.id, " Unit:", unit.name, " Category id:", category.id)
         assignment = Assignment.objects.create(quiz=quiz, category_id=category.id)
         for user_name in user_names:
             user = User.objects.filter(username=user_name).first()
             if user is None:
-                # print(f"User with username {user_name} not found, skipping.")
                 continue
             AssignmentStudent.objects.create(assignment=assignment, user=user)
 
@@ -1098,7 +1004,6 @@ def get_s3_recordings(request):
     recordings = []
     for obj in response.get('Contents', []):
         file_key = obj['Key']
-        #print("Found audio file in S3 with key:", file_key)
         if student and student not in file_key.lower():
             continue
         url = get_s3_audio_url(file_key)
@@ -1145,15 +1050,12 @@ def delete_audio(request):
     try:
         # Check if the request body is JSON
         if request.content_type == 'application/json':
-            #print("delete_audio received JSON request body:", request.body)
             data = json.loads(request.body)
             file_key = data.get('file_key')
         else:
             # Handle form-data or x-www-form-urlencoded
-            #print("delete_audio received non-JSON request, using POST parameters:", request.POST)
             file_key = request.POST.get('file_key')
 
-        #print("delete_audio called with file_key:", file_key)
 
         if not file_key:
             return JsonResponse({'error': 'file_key parameter is required'}, status=400)
@@ -1180,9 +1082,7 @@ def delete_audio(request):
 def batch_delete_files(request):
     try:
         # Parse the JSON payload
-        # print("batch_delete_files called body:", request.body)
         file_keys = json.loads(request.body).get('file_keys', [])
-        # print("batch_delete_files received file_keys:", file_keys)
 
         if not file_keys:
             return JsonResponse({'error': 'No file keys provided'}, status=400)
@@ -1219,13 +1119,10 @@ def batch_delete_files(request):
 
 def populate_entry(word):
     # make a list of
-    # print(" calling read_star_dict with word:", word)
     # call hyphenation with the word "dictionary" for testing
-    # print(hyphenation("dictionary") )
     
     vdict_entries = read_star_dict(word)
     # iterate throught the part of speech keys for the word
-    # print(" vdict_entries returned: ", vdict_entries)
 
     # Word not present in the Viet dictionary -> return no parts of speech (caller reports it).
     if not vdict_entries or word not in vdict_entries:
@@ -1269,7 +1166,6 @@ def populate_entry(word):
         
         part_of_speech_list.append(part_of_speech_dict)
 
-    # print("***** part_of_speech_list ", part_of_speech_list)
     return part_of_speech_list
     
 @api_view(["POST"])
@@ -1303,22 +1199,17 @@ def populate_viet_dictionary(request):
         # Check if the request body is JSON
         # get word from request body
         if request.content_type == 'application/json':
-            # print("read_viet_dictionary received JSON request body:", request.body)
             data = json.loads(request.body)
             word = data.get('word')
         else:
             # Handle form-data or x-www-form-urlencoded
-            # print("read_viet_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
 
         # TEST: verify syllabify() works during populate (remove once confirmed).
         # _syl = syllabify(word)
-        # print(f"[syllabify TEST] word={word!r} found={_syl['found']} "
-        #       f"count={_syl['syllable_count']} syllables={[' '.join(s) for s in _syl['syllables']]}")
 
         # Same helper the serializer uses, so this matches the stored viet_pron_code exactly.
         _viet = respell_in_vietnamese(word)
-        # print(f"[arpabet->vietnamese TEST] word={word!r} vietnamese={_viet}")
 
         # Debug aid: the raw ARPAbet phonemes (POS-independent, from cmudict).
         # The per-POS modified phonemes are added to each part of speech below.
@@ -1330,8 +1221,6 @@ def populate_viet_dictionary(request):
             return JsonResponse({'error': 'exists', 'word': word}, status=409)
 
         part_of_speech_list = populate_entry(word)
-        # print(" ************************")
-        # print(" part_of_speech_list ", part_of_speech_list)
 
         # Word not in the Vietnamese StarDict -> create a dummy entry (one empty
         # noun sense) so the teacher can fill in the definition themselves,
@@ -1347,15 +1236,12 @@ def populate_viet_dictionary(request):
         for_serialization['head_word'] = word
         for_serialization['source'] = "ho-ngoc-duc-stardict"
         for_serialization['part_of_speeches'] = part_of_speech_list
-        #print("**************************************************")
-        #print(json.dumps(for_serialization, indent=4, ensure_ascii=False))
         
         serializer = DictEntrySerializer(data=for_serialization)
         
         if serializer.is_valid():
             saved_entry = serializer.save()
         else:
-            # print("Serializer errors:", serializer.errors)
             # return error response if serializer is not valid
             return JsonResponse({'error': 'Failed to serialize dictionary entry.', 'details': serializer.errors}, status=400)
 
@@ -1392,14 +1278,12 @@ def read_dictionary(request):
         # Check if the request body is JSON
         # get word from request body
         if request.content_type == 'application/json':
-            # print("read_dictionary received JSON request body:", request.body)
             data = json.loads(request.body)
             word = data.get('word')
             source = data.get('source', None)
             user_name = data.get('user_name')  # student: used to hide "+ Review" for cards already in review
         else:
             # Handle form-data or x-www-form-urlencoded
-            # print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
             source = request.POST.get('source', None)
             user_name = request.POST.get('user_name')
@@ -1407,11 +1291,9 @@ def read_dictionary(request):
         if (source):
             # Exact (case-insensitive) match — icontains would wrongly return "national" for "nation".
             query = DictEntry.objects.filter(head_word__iexact=word, source=source)
-            # print("read_dictionary, query:", query)
             serializer = DictEntrySerializer(query, many=True)
 
             # print pretty printed serializer data
-            # print("read_dictionary, serializer data:", json.dumps(serializer.data, indent=4, ensure_ascii=False))
             if not serializer.data:
                 return JsonResponse({'error': f'No dictionary entry found for word "{word}" with source "{source}".'}, status=404)
 
@@ -1554,12 +1436,10 @@ def  populate_longman_dictionary(request):
         # Check if the request body is JSON
         # get word from request body
         if request.content_type == 'application/json':
-            print("read_dictionary received JSON request body:", request.body)
             data = json.loads(request.body)
             word = data.get('word')
         else:
             # Handle form-data or x-www-form-urlencoded
-            print("read_dictionary received non-JSON request, using POST parameters:", request.POST)
             word = request.POST.get('word')
 
         # Don't re-add a word that's already in this dictionary.
@@ -1585,13 +1465,11 @@ def  populate_longman_dictionary(request):
         # create a python dictionary to store the head word, part of speech for serialization later
         for entry in dict_entry:
             ldoce_section = entry.find('span', class_ = lambda x: x and 'ldoceEntry Entry' in x)
-            # print(" found ldoce section")
            
             if ldoce_section:
                 part_of_speech = ldoce_section.find('span', class_ = lambda x: x and 'POS' in x)
                 if part_of_speech:
                     part_of_speech_dict = {}
-                    #print(part_of_speech.prettify())
                     part_of_speech_dict['name'] = part_of_speech.get_text(strip=True)
                     # name | pron_code | amevar_pron | frequency | grammar | dict_entry_id 
                 pron_code = ldoce_section.find('span', class_ = lambda x: x and 'PRON' in x)
@@ -1604,46 +1482,35 @@ def  populate_longman_dictionary(request):
                    
                 grammar = ldoce_section.find('span', class_ = lambda x: x and 'GRAM' in x)
                 if grammar:
-                    # print("GRAM", grammar.get_text(strip=True))
                     # get the text of grammar and remove all extra spaces and newlines,
                     # also remove the surrounding square brackets if they exist
                     part_of_speech_dict['grammar'] = grammar.get_text(strip=True).replace('\n', ' ').replace('[', '').replace(']', '').strip()
                     
                 frequency = ldoce_section.find('span', class_ = lambda x: x and 'FREQ' in x)
                 if frequency:
-                    # print(frequency.prettify())
                     part_of_speech_dict['frequency'] = frequency.get_text(strip=True)
                      
                 senses = ldoce_section.find_all('span', class_ = lambda x: x and 'Sense' in x)
                 senses_list = []
                 for sense in senses:
-                    # print("SENSE:", sense.prettify())
                     sense_dict = {}
                     
                     sense_number = sense.find('span', class_ = lambda x: x and 'sensenum span' in x)
                     if sense_number:
-                        # print("sense_number:", sense_number.get_text(strip=True))
                         sense_dict['sense_number'] = sense_number.get_text(strip=True)
                     
                     definition = sense.find('span', class_ = lambda x: x and 'DEF' in x)
                     if definition:
-                        # print("definition:", definition.get_text(strip=True))
                         sense_dict['definition'] = definition.get_text(strip=False)
                     
                     related_words = sense.find_all('span', class_ = lambda x: x and 'RELATEDWD' in x)
                     if related_words:
                         related_words_str = ''
                         for related_word in related_words:
-                            #print("related_word:", related_word.get_text(strip=True))
                             # strip non printable characters from related_word text and 
                             text = related_word.get_text(strip=True)
-                            for c in text:
-                                if ord(c) > 127:
-                                    print(repr(c), hex(ord(c)))
-                            # print("related_word text before stripping non-printable characters:", text)
                             text = text.replace('\u2192', '').replace(',','') 
                             # remove right arrow character and any commas from the text
-                            # print("related_word text after stripping non-printable characters:", text)
                             # if the text is not empty after stripping, add it to the related_words string, separated by a comma
                             if (text):
                                 if related_words_str:
@@ -1653,7 +1520,6 @@ def  populate_longman_dictionary(request):
                                     
                             #related_words.append(text)
                             #related_words_list.append(related_word.get_text(strip=True))
-                        #print("related_words_str is:", related_words_str)
                         sense_dict['related_words'] = related_words_str
                         
                     #examples = sense.find_all('span', class_ = lambda x: x and 'EXAMPLE' in x)
@@ -1679,17 +1545,14 @@ def  populate_longman_dictionary(request):
                     if gram_examples:
                         for i, gram_example in enumerate(gram_examples, start=examples_length + 1):
                             example_dict = {}
-                            # print("gram_example:", gram_example.get_text(strip=True))
                             # get the first span as child of gram_example which contains the form of the grammar point, e.g., "be rewarded (with something)"
                             grammar_point_span = gram_example.find('span')
                             if grammar_point_span:
-                                # print("grammar_point_span:", grammar_point_span.get_text(strip=True))
                                 example_dict['grammar_point'] = grammar_point_span.get_text(strip=True)
                         
                             # get the EXAMPLE itself
                             example_span = gram_example.find('span', class_ = lambda x: x and 'EXAMPLE' in x)
                             if example_span:
-                                # print("example_span:", example_span.get_text(strip=True))
                                 example_dict['sentence'] = example_span.get_text(strip=True)
                                 example_dict['example_number'] = i
                                 example_dict['translation'] = None
@@ -1697,34 +1560,27 @@ def  populate_longman_dictionary(request):
                             examples_list.append(example_dict)
                     
                             
-                    # print("examples_list:", examples_list)
                             
                     sense_dict['examples'] = examples_list
                     
                     cross_reference = sense.find('span', class_ = lambda x: x and 'Crossref' in x)
                     if cross_reference:
-                        # print("cross_reference:", cross_reference)
                         # look for the link inside the cross reference span and get the text of the link
                         cross_reference_link = cross_reference.find('a')
                         if cross_reference_link:
                             # look for span with class "REFHWD" inside the link and get the text of that span as the head word of the cross reference
                             cross_ref_head_word_title = cross_reference_link.find('span', class_ = lambda x: x and 'REFHWD' in x)
-                            # print("ref_head_word_title:", cross_ref_head_word_title.get_text(strip=True))
                             # be rewarded (with something)
                             # 
                             # get the href attribute of the link and extract the xref head word from the URL
                             cross_ref_url = cross_reference_link['href']
                             cross_ref_head_word = cross_ref_url.split('/')[-1] # be-rewarded-with-something
-                            # print("cross_ref_head_word:", cross_ref_head_word)
                             # join the title and the head word with a forward slash 
                             cross_reference_text = f"{cross_ref_head_word_title.get_text(strip=True)}/{cross_ref_head_word}"
-                            # print("cross_reference_text:", cross_reference_text)
                             sense_dict['cross_reference'] = cross_reference_text
                     
                     # add sense_dict to senses_list
-                    # print("sense_dict:", sense_dict)
                     senses_list.append(sense_dict)
-                    # print("senses_list:", senses_list)
                     # [{'definition': 'something that you get because you have done something good orhelpfulor have worked hard', 'related_words': 'prize/benefit'}, {'definition': 'money that is offered to people for helping the police tosolveacrimeorcatchacriminal'}]
                     
                 # add sesnses_list to for_serialization
@@ -1743,11 +1599,9 @@ def  populate_longman_dictionary(request):
         for_serialization['part_of_speeches'] = part_of_speeches_list
         serializer = DictEntrySerializer(data=for_serialization)
         # for_serialization['part_of_speeches'] = part_of_speech.get_text(strip=True)
-        # print(json.dumps(for_serialization, indent=4, ensure_ascii=False))
          
         
         if serializer.is_valid():
-            # print("Serialized LdoceEntry:", serializer.data)
             # save to database
                 serializer.save()
         else:
@@ -1765,9 +1619,7 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
     # permission_classes = [AllowAny]
     def perform_update(self, serializer):
-        print("request data:", self.request.data)
         if serializer.is_valid():
-            print("Serializer is valid")
             serializer.save(
                 definition=self.request.data.get('definition'),
             )
@@ -1778,8 +1630,6 @@ class SenseUpdateView(generics.RetrieveUpdateAPIView):
         sense_id = self.kwargs.get('pk')
         #queryset = Unit.objects.filter(sub_category_id=sub_category_id).prefetch_related('quizzes')
         queryset = Sense.objects.filter(id=sense_id)
-        #print("QuestionListView, Filtered Questions no Prefetch:", queryset)
-        #print("QuestionListView, SQL Query:", queryset.query)  # Debugging SQL query
         return queryset
 
 

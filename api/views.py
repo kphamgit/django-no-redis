@@ -35,9 +35,7 @@ class LoggingTokenObtainPairSerializer(TokenObtainPairSerializer):
     """Default login, but prints the username on a successful authentication
     (visible in the server/Heroku logs)."""
     def validate(self, attrs):
-        print(f"Login attempt for user: {attrs.get(self.username_field)}")
         data = super().validate(attrs)  # authenticates credentials; sets self.user
-        print(f"User logged in successfully: {self.user.username}")
         return data
 
 
@@ -50,11 +48,9 @@ class StaffTokenObtainPairSerializer(TokenObtainPairSerializer):
     Used by the admin/teacher app so students (is_staff=False) cannot sign in there.
     The regular /api/token/ endpoint is unchanged and still serves the student app."""
     def validate(self, attrs):
-        print(f"Staff login attempt for user: {attrs.get(self.username_field)}")
         data = super().validate(attrs)  # authenticates credentials; sets self.user
         if not self.user.is_staff:
             raise PermissionDenied("This account is not authorized to access this app (staff only).")
-        print(f"Staff user logged in successfully: {self.user.username}")
         return data
 
 
@@ -68,7 +64,6 @@ def logout_user(request):
     frontend calls this first -- while the access token is still valid -- so a
     successful logout is logged server-side, mirroring the login log. The default
     IsAuthenticated permission guarantees request.user is the real, authenticated user."""
-    print(f"***** User logged out successfully: {request.user.username}")
     return Response({"detail": "logged out"})
 
 
@@ -103,11 +98,9 @@ redis_client = redis.StrictRedis.from_url(REDIS_URL, decode_responses=True)
 @csrf_exempt
 @require_POST
 def send_notification(request):
-    #print("send_notification endpoint hit request", request)
     try:
         # Parse the JSON payload (remember request.body is ALWAYS in JSON string format,
         # so you need to json.loads it to convert it to a Python dict before you can access its fields)
-        # print("send_notification called with request.body:", request.body)
         data = json.loads(request.body)
        
         # since Redis only accepts JSON strings, we have to convert the request.body back to a JSON string.
@@ -117,7 +110,6 @@ def send_notification(request):
         # to parse it correctly to access the message_type field and route the notification to the right clients.
         
         message = json.dumps(data)  # Convert entire data to JSON string
-        print("Message to send with notification:", message)
 
         if not message:
             return JsonResponse({'error': 'Message is required'}, status=400)
@@ -263,18 +255,14 @@ Available voice: Laura - a top narration voice id: GZ4PpFJV8ikEGUtBrjK7
 Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         """
     
-    #print("APP KEY tail:", settings.ELEVENLABS_API_KEY[-4:])
     
     
     # voices = eleven_client.voices.get_all()
     #for v in voices.voices:
-    #    print(f"Available voice: {v.name} id: {v.voice_id}")
         
     #ids = {v.voice_id: v.name for v in eleven_client.voices.get_all().voices}
-    # print("ZSNL4hPqCnqoMPaI4jGX" in ids)  # True = added to your account; False = library-only
 
     
-    print("generate_eleven_lab_audio_and_save_to_azure called with request.body:", request.body)
     data = request.data
     text_to_speak = data.get("text_to_speak") or data.get("text", "")
     base_name = data.get("blob_name", "default_name")
@@ -292,21 +280,17 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
 
     # Pick the voice by name from the request body, defaulting to "River".
     voice_name = data.get("voice_name", "River")
-    print("Requested voice name:", voice_name)
     voice = VOICES.get(voice_name)
-    print("Selected voice:", voice_name, "voice details:", voice)
     if voice is None:
         return HttpResponseBadRequest(
             f"Unknown voice '{voice_name}'. Available voices: {', '.join(VOICES)}."
         )
 
-    print("***** Text to speak:", text_to_speak)
     if not text_to_speak:
         return HttpResponseBadRequest("Missing 'text_to_speak' in request body.")
 
     try:
         # 1. Fetch the TTS data iterator from ElevenLabs
-        # print("Generating audio from ElevenLabs for text:")
         audio_iterator = eleven_client.text_to_speech.convert(
             text=text_to_speak,
             voice_id=voice["voice_id"],  # selected via the "voice" request field (default: River)
@@ -316,7 +300,6 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         )
     
         # 2. Compile the byte chunks entirely in memory
-        print("Compiling audio chunks into memory buffer...")
         audio_buffer = io.BytesIO()
         for chunk in audio_iterator:
             if chunk:
@@ -328,10 +311,8 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         # 3. Prepare Azure Blob Target Details
         # unique_filename = f"tts_{uuid.uuid4()}.mp3"
         # base_name = text_to_speak.replace(" ", "_")
-        # print("Request speed for TTS:", request_speed)
         #base_name = "my_test_audio"  # You can customize this based on your needs
         unique_filename = f"slow_{base_name}.mp3" if request_speed == "slow" else f"{base_name}.mp3"
-        # print("Generated unique filename for Azure Blob:", unique_filename)
         blob_client = blob_service_client.get_blob_client(
             container=CONTAINER_NAME + '/elevenlabs' + f"/{voice_name.lower()}",  # Optional subfolder in the container
             blob=unique_filename
@@ -341,7 +322,6 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         content_settings = ContentSettings(content_type="audio/mpeg")
 
         # 4. Stream upload directly to Azure
-        print("Uploading audio to Azure Blob Storage...")
         blob_client.upload_blob(
             audio_buffer, 
             overwrite=True, 
@@ -352,7 +332,6 @@ Available voice: Rachel - Social Media Narrator id: K7W7zLWeGoxU9YqWoB7A
         # Note: Assumes your Azure Container access level is set to 'Blob' or 'Container' (Public Read)
         azure_blob_url = blob_client.url
         
-        print("Audio successfully uploaded to Azure Blob Storage. URL:", azure_blob_url)
 
         return JsonResponse({
             "status": "success", 
@@ -411,6 +390,67 @@ def eleven_lab_tts(request):
         return JsonResponse({"error": str(e)}, status=502)
 
 
+# Amazon Polly (neural engine) for the teacher's Shadowing reference. Neural voices aren't in
+# every region, so Polly has its own region setting (default us-east-1).
+POLLY_REGION = os.environ.get("POLLY_REGION", "us-east-1")
+POLLY_VOICES = {"Danielle", "Gregory", "Joanna", "Kendra", "Kimberly", "Salli", "Joey", "Matthew", "Ruth", "Stephen"}
+
+
+def _polly_ssml(text, rate):
+    """`text` as SSML with the speaking rate applied (Polly has no rate setting, only
+    <prosody rate>). SSML input (starting with <speak) keeps its markup; plain text is escaped."""
+    import re
+    from xml.sax.saxutils import escape
+    stripped = text.strip()
+    match = re.match(r"(?is)^<speak[^>]*>(.*)</speak>\s*$", stripped)
+    inner = match.group(1) if match else escape(stripped)
+    if abs(rate - 1.0) > 1e-6:
+        inner = f'<prosody rate="{round(rate * 100)}%">{inner}</prosody>'
+    return f"<speak>{inner}</speak>"
+
+
+@api_view(["POST"])
+def polly_tts(request):
+    """Generates Amazon Polly (neural) TTS and returns the MP3 (Content-Type: audio/mpeg).
+    Teacher (staff) only, since every call costs money.
+    Body (JSON): text (plain, or SSML starting with <speak>), voice (one of POLLY_VOICES,
+    default Matthew), rate (0.5-1.0, default 1.0). Returns JSON {error: ...} on failure."""
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    data = request.data
+    text = (data.get("text") or "").strip()
+    if not text:
+        return JsonResponse({"error": "No text provided."}, status=400)
+    voice = data.get("voice") or "Matthew"
+    if voice not in POLLY_VOICES:
+        return JsonResponse({"error": f"Unknown voice '{voice}'."}, status=400)
+    try:
+        rate = float(data.get("rate", 1.0))
+    except (TypeError, ValueError):
+        rate = 1.0
+    rate = max(0.5, min(1.0, rate))
+
+    try:
+        polly = boto3.client(
+            "polly",
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=POLLY_REGION,
+        )
+        resp = polly.synthesize_speech(
+            Text=_polly_ssml(text, rate),
+            TextType="ssml",
+            VoiceId=voice,
+            Engine="neural",
+            OutputFormat="mp3",
+        )
+        from django.http import HttpResponse
+        return HttpResponse(resp["AudioStream"].read(), content_type="audio/mpeg")
+    except Exception as e:
+        print("polly_tts failed:", e)
+        return JsonResponse({"error": str(e)}, status=502)
+
+
 @csrf_exempt
 def upload_audio(request):
   # 1. Initialize the S3 client using your Django settings
@@ -428,14 +468,12 @@ def upload_audio(request):
         audio_file = request.FILES.get('audio')
         audio_file.seek(0)  # 👈 ALWAYS add this line before uploading to S3
     
-        # print("Received audio file:", audio_file.name, "size:", audio_file.size)
         s3_client.put_object(
             Bucket=settings.AWS_STORAGE_BUCKET_NAME,
             Key="audios/recordings/" + audio_file.name,
             Body=audio_file,
             ContentType="audio/webm"  # Set the correct content type for audio files
         )
-        #print("Audio file uploaded to S3 with name:", audio_file.name)
         # student_3_3_2026_10-18-44_PM.webm
         # split audio_file.name by "_" and get the first part as user name
         user_name = audio_file.name.split("_")[0]
@@ -462,7 +500,6 @@ class CategoryCreate(generics.CreateAPIView):
 
     #def get_queryset(self):
     #    user = self.request.user
-    #    print("INNNNNN CategoryListCreate, user:", user)
     #    return Category.objects.all().order_by('category_number').prefetch_related('sub_categories')
 
     def perform_create(self, serializer):
@@ -474,10 +511,8 @@ class CategoryCreate(generics.CreateAPIView):
 
 @api_view(["GET"])
 def level_list(request):
-    #print("level_list called")
     levels = Level.objects.order_by('level_number')
     serializer = LevelWithCategoriesSerializer(levels, many=True)
-    # print("******** level_list serializer.data:", serializer.data)
     return Response(serializer.data)
     
 
@@ -846,7 +881,6 @@ def openai_transcription(request):
             file=(audio_file.name, audio_file.read(), audio_file.content_type),
             language="en",  # force English transcription
         )
-        print("Transcription result:", transcription.text)
         # Also translate the transcribed English to Vietnamese in the same request.
         return JsonResponse({
             'transcription': transcription.text,
@@ -963,12 +997,10 @@ class UnitListView(generics.ListAPIView):
     def get_queryset(self):
         category_id = self.kwargs.get('category_id')
         queryset = Unit.objects.filter(category_id=category_id).order_by('unit_number')
-        #print("UnitListView, Filtered Units no Prefetch:", queryset)
         return queryset
    
 @api_view(["GET"])
 def get_question_by_number(request, quiz_id, question_number):
-    #print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
     try:
         question = Question.objects.get(quiz_id=quiz_id, question_number=question_number)
         serializer = QuestionSerializer(question)
@@ -981,7 +1013,6 @@ def get_question_by_number(request, quiz_id, question_number):
     
 @api_view(["POST"])
 def get_question_by_number_live(request, quiz_id, question_number):
-    #print("get_question_by_number called with quiz_id:", quiz_id, " question_number:", question_number)
     # request.data contains user_name, retrieve it
     user_name = request.data.get('user_name', 'anonymous')
     try:
@@ -1014,20 +1045,16 @@ def create_video_quiz_attempt(request):
        
         quiz_id = request.data.get('quiz_id', None)
         # number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 1)
-        # print("create_video_quiz_attempt called with quiz_id:", quiz_id, "user_name:", request.data.get('user_name'))
         quiz_attempt, created = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
             quiz_id=quiz_id,
             completion_status="uncompleted",
         )
         
-        #print("***** New QuizAttempt created.")
-        # print("***** New QuizAttempt created for quiz_id", pk, "and user_name", request.data['user_name'])
         serializer = QuizAttemptSerializer(quiz_attempt)
     
         # get first question of the quiz to preload, if any
         if created:
-            #print("***** New QuizAttempt created for quiz_id", quiz_id, "and user_name", request.data['user_name'])
             first_question = Question.objects.filter(quiz_id=quiz_id).order_by('question_number').first()
             if first_question:
                 # create question attempt for the first question of the quiz
@@ -1044,13 +1071,10 @@ def create_video_quiz_attempt(request):
                     "question_attempt_id": first_question_attempt.id if first_question_attempt else None,
                     })
         else:   # reuse the existing quiz attempt, and get the last question attempt if any
-            #print("***** Reusing existing QuizAttempt for quiz_id", quiz_id, "and user_name", request.data['user_name'])
             last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()
-            # print(" Last question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")
             if last_question_attempt:
                 # check if last question attempt is completed
                 if not last_question_attempt.completed:
-                    # print(" ^^^^^ Last question attempt is not completed, returning it.")
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": created,
@@ -1084,13 +1108,10 @@ def create_video_quiz_attempt_old(request):
             completion_status="uncompleted",
             
         )
-        #print("***** New QuizAttempt created.")
-        # print("***** New QuizAttempt created for quiz_id", pk, "and user_name", request.data['user_name'])
         serializer = QuizAttemptSerializer(quiz_attempt)
     
         loaded_questions = Question.objects.filter(quiz_id=quiz_id).order_by('question_number')[:number_of_questions_to_preload]
         # if loaded_questions:
-            # print("Loaded questions size for quiz_id", pk, ":", loaded_questions.count())
             # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
             # create question attempt for the first question of loaded questions
         return Response({
@@ -1171,7 +1192,6 @@ def get_next_segment_question(request, pk):
         
         #data = json.loads(request.body)
         #quiz_attempt_id = data.get('quiz_attempt_id', 'default_id')
-        # print("Received quiz_attempt_id:", quiz_attempt_id)
         
         questions = Question.objects.filter(
             quiz_id=pk,
@@ -1199,9 +1219,7 @@ def create_video_quiz_attempt(request):
             completion_status="uncompleted",
             
         )
-            #print("***** New QuizAttempt created.")
         serializer = QuizAttemptSerializer(quiz_attempt)
-            #print(" QQQQQQQQQQQ QuizAttempt created:", serializer.data)
         return Response({
                 "quiz_attempt": serializer.data,
                 "created": True,
@@ -1213,9 +1231,6 @@ def create_video_quiz_attempt(request):
 def get_or_create_quiz_attempt(request, pk):
         # get number_of_questions_to_preload from request.data, default to 3
         number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
-        #print("***** get_or_create_quiz_attempt_react_native called. Number of questions preloaded:", number_of_questions_to_preload)
-        #print(" user name", request.data['user_name'])
-        #print(" quiz id", pk)  
         quiz_attempt, created  = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
             quiz_id=pk,
@@ -1223,12 +1238,10 @@ def get_or_create_quiz_attempt(request, pk):
             defaults={'score': 0, 'user_name': request.data['user_name'], 'quiz_id' : pk, "completion_status":"uncompleted"}
         )
         if created:
-            # print("***** New QuizAttempt created for quiz_id", pk, "and user_name", request.data['user_name'])
             serializer = QuizAttemptSerializer(quiz_attempt)
     
             loaded_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
             if loaded_questions:
-                # print("Loaded questions size for quiz_id", pk, ":", loaded_questions.count())
                 # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
               
                 first_question = loaded_questions[0]
@@ -1250,10 +1263,8 @@ def get_or_create_quiz_attempt(request, pk):
                     "question_attempt_id": None,
                 })                
         else:
-            #print("^^^^^^^^^^^^^^^^^^^^^^^ QuizAttempt already exists.")
             serializer = QuizAttemptSerializer(quiz_attempt)
             last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()   
-            #print(" ^^^^^^^^^^^^^^^^^^^^^^ Last completed question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")         
             # check if last question attempt is completed
             if last_question_attempt and not last_question_attempt.completed:
                 pending_question = last_question_attempt.question
@@ -1290,7 +1301,6 @@ def get_or_create_quiz_attempt(request, pk):
                             question=next_question,
                             completed=False,
                         )
-                        #print("Created next QuestionAttempt for Question id:", next_question.id, "question_attempt id:", question_attempt.id)
                         return Response({
                             "quiz_attempt": serializer.data,
                             "created": False,
@@ -1299,7 +1309,6 @@ def get_or_create_quiz_attempt(request, pk):
                         })
                     else:
                         # no more questions available
-                        #print("No more questions available in the quiz.")
                         return Response({
                             "quiz_attempt": serializer.data,
                             "created": False,
@@ -1314,12 +1323,8 @@ def get_or_create_quiz_attempt(request, pk):
         """
             Create or retrieve a QuizAttempt for the given quiz and user.
         """
-        # print("********** get_or_create_quiz_attempt called.................")
         # get number_of_questions_to_preload from request.data, default to 3
         number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
-        #print("***** get_or_create_quiz_attempt_react_native called. Number of questions preloaded:", number_of_questions_to_preload)
-        #print(" user name", request.data['user_name'])
-        #print(" quiz id", pk)  
         quiz_attempt, created  = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
             quiz_id=pk,
@@ -1327,15 +1332,12 @@ def get_or_create_quiz_attempt(request, pk):
             defaults={'score': 0, 'user_name': request.data['user_name'], 'quiz_id' : pk, "completion_status":"uncompleted"}
         )
         if created:
-            # print("***** New QuizAttempt created for quiz_id", pk, "and user_name", request.data['user_name'])
             serializer = QuizAttemptSerializer(quiz_attempt)
     
             #loaded_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
             # retrieve the first question of the quiz, using question_number=1, to ensure the question attempt created is always for the first question of the quiz, 
             first_question = Question.objects.filter(quiz_id=pk, question_number=1).first()
-            # print("First question retrieved for quiz_id", pk, ":", first_question)
             if first_question:
-                # print("Loaded questions size for quiz_id", pk, ":", loaded_questions.count())
                 # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
                 # create question attempt for the first question of loaded questions
                 question_attempt = QuestionAttempt.objects.create(
@@ -1352,7 +1354,6 @@ def get_or_create_quiz_attempt(request, pk):
                 })
             else:
                 # no questions in the quiz
-                # print("No questions found in the quiz.")
                 return Response({
                     "quiz_attempt": serializer.data,
                     "created": True,
@@ -1360,13 +1361,10 @@ def get_or_create_quiz_attempt(request, pk):
                     "question_attempt_id": None,
                 })                
         else:
-            # print("^^^^^^^^^^^^^^^^^^^^^^^ QuizAttempt already exists.")
             serializer = QuizAttemptSerializer(quiz_attempt)
             last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()   
-            #print(" ^^^^^^^^^^^^^^^^^^^^^^ Last completed question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")         
             # check if last question attempt is completed
             if last_question_attempt and not last_question_attempt.completed:
-                # print("Last question attempt is not completed, last question attempt id = ", last_question_attempt.id , " pending question id:", last_question_attempt.question.id)
                 pending_question = last_question_attempt.question
                 return Response({
                     "quiz_attempt": serializer.data,
@@ -1375,7 +1373,6 @@ def get_or_create_quiz_attempt(request, pk):
                     "question_attempt_id": last_question_attempt.id,
                 })
             elif last_question_attempt and last_question_attempt.completed:
-                # print("Last question attempt is completed, last completed question id:", last_question_attempt.question.id)
                 # if last question attempt was completed, grab the next question after the last completed question, using the question_number of the last completed question, and create a question attempt for the next question
                 last_question_completed = last_question_attempt.question
                 next_question = Question.objects.filter(quiz_id=pk, question_number__gt=last_question_completed.question_number).order_by('question_number').first()
@@ -1385,7 +1382,6 @@ def get_or_create_quiz_attempt(request, pk):
                         question=next_question,
                         completed=False,
                     )
-                    # print("Created next QuestionAttempt for Question id:", next_question.id, "question_attempt id:", question_attempt.id)
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": False,
@@ -1409,7 +1405,6 @@ def get_or_create_quiz_attempt_react_native(request, pk):
         """
         # get number_of_questions_to_preload from request.data, default to 3
         number_of_questions_to_preload = request.data.get('number_of_questions_to_preload', 3)
-        # print("***** get_or_create_quiz_attempt_react_native called. Number of questions preloaded:", number_of_questions_to_preload)
         quiz_attempt, created  = QuizAttempt.objects.get_or_create(
             user_name=request.data['user_name'],
             quiz_id=pk,
@@ -1421,12 +1416,9 @@ def get_or_create_quiz_attempt_react_native(request, pk):
     
             loaded_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
             if loaded_questions:
-                # print("Loaded questions size for quiz_id", pk, ":", loaded_questions.count())
                 # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
-                # print(serializers.serialize('json', loaded_questions))
   
                 #for q in loaded_questions:
-                #    print(vars(q))
                 first_question = loaded_questions[0]
                 # create question attempt for the first question of loaded questions
                 question_attempt = QuestionAttempt.objects.create(
@@ -1444,7 +1436,6 @@ def get_or_create_quiz_attempt_react_native(request, pk):
                 })
             else:
                 # no questions in the quiz
-                print("No questions found in the quiz.")
                 return Response({
                     "quiz_attempt": serializer.data,
                     "created": True,
@@ -1453,10 +1444,8 @@ def get_or_create_quiz_attempt_react_native(request, pk):
                 })
                     
         else:
-            # print("^^^^^^^^^^^^^^^^^^^^^^^ QuizAttempt already exists.")
             serializer = QuizAttemptSerializer(quiz_attempt)
             last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()   
-            # print(" ^^^^^^^^^^^^^^^^^^^^^^ Last completed question attempt id:", last_question_attempt.id if last_question_attempt else "None", " question id:", last_question_attempt.question.id if last_question_attempt else "None", " completed:", last_question_attempt.completed if last_question_attempt else "None")         
             # check if last question attempt is completed
             if last_question_attempt and not last_question_attempt.completed:
                 pending_question = last_question_attempt.question
@@ -1483,7 +1472,6 @@ def get_or_create_quiz_attempt_react_native(request, pk):
                         question=next_question,
                         completed=False,
                     )
-                    #print("Created next QuestionAttempt for Question id:", next_question.id, "question_attempt id:", question_attempt.id)
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": False,
@@ -1492,7 +1480,6 @@ def get_or_create_quiz_attempt_react_native(request, pk):
                     })
                 else:
                     # no more questions available
-                    #print("No more questions available in the quiz.")
                     return Response({
                         "quiz_attempt": serializer.data,
                         "created": False,
@@ -1505,17 +1492,14 @@ def get_or_create_quiz_attempt_react_native(request, pk):
 def continue_quiz_attempt(request, pk):
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
-        #print("Continuing QuizAttempt id:", pk)
         #make a new QuestionAttempt for the first question in the quiz
         # inspect the last question attempt of this quiz attempt
         last_question_attempt = quiz_attempt.question_attempts.order_by('-id').first()
         if last_question_attempt:
         # check if last question attempt is completed
             if last_question_attempt.completed:
-                #print("Last QuestionAttempt is completed. Creating next QuestionAttempt.")
                 next_question = Question.objects.filter(quiz_id=quiz_attempt.quiz_id, question_number__gt=last_question_attempt.question.question_number).order_by('question_number').first()
                 if next_question:
-                    #print("Next question found: question id = ", next_question.id)
                     question_attempt = QuestionAttempt.objects.create(
                         quiz_attempt=quiz_attempt,
                         question=next_question,
@@ -1530,14 +1514,12 @@ def continue_quiz_attempt(request, pk):
                         "question_attempt_id": question_attempt.id
                     })
                 else:
-                    print("No more questions available in the quiz.")
                     return Response({
                         "message": "No more questions available in the quiz.",
                         "quiz_attempt_id": pk,
                         "question": None
                     })
             else:
-                # print("Last QuestionAttempt is not completed. Returning the same question.")
                 question_serializer = QuestionSerializer(last_question_attempt.question)
                 return Response({
                     "message": "Returning the current QuestionAttempt.",
@@ -1566,11 +1548,9 @@ def start_live_quiz(request, pk):
         # use R_CONN from settings.py to persist live quiz id to Redis store
         # (for recovery purposes in case in case user drops connection and reconnects later
         # or is logged in during a live quiz session)
-        # print("Persisting live quiz id to Redis store with key 'live_quiz_id' and value:", pk)
         settings.R_CONN.set('live_quiz_id', pk)
         # settings.R call('JSON.SET', `user:${user_name}`, '$', JSON.stringify(newUser));
         # settings.R_CONN.call('JSON.SET', "user:student1", '$', json.dumps(pk))
-        # print("Live quiz started with id:", pk, " and name:", quiz.name)
         return Response({
             "message": "Live quiz started and notification sent.",
             "quiz": QuizDetailSerializer(quiz).data,
@@ -1578,7 +1558,6 @@ def start_live_quiz(request, pk):
         })
         
     except Quiz.DoesNotExist:
-        #print(" ******* Live quiz with id", pk, " not found.")
         return Response({
             "error": " *** Quiz with id" + str(pk) + " not found."
         }, status=404)
@@ -1589,7 +1568,6 @@ def send_live_question_number(request, pk):
     # body contains live_quiz_id id
     try:
       
-        # print("send_live_question_number called with pk (question_number):", pk, " request.data:", request.data)
         # pik is the question_number
         live_quiz_id = request.data.get('live_quiz_id', None)
         target_user_name = request.data.get('target_user_name', 'everybody')
@@ -1597,7 +1575,6 @@ def send_live_question_number(request, pk):
         question_number = pk
         question = Question.objects.filter(quiz_id=live_quiz_id, question_number=pk).first()
         if question is None:
-            #print(" ******* Question with quiz_id", live_quiz_id, " and question_number ", pk, " not found.")
             return Response({
                 "error": "Question not found for the given question_number."
             }, status=404)
@@ -1636,7 +1613,6 @@ def reset_quiz_attempt(request, pk):
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
         # Delete all associated question attempts
-        #print("Resetting QuizAttempt id:", pk)
         quiz_attempt.question_attempts.all().delete()
         # Reset quiz attempt status
         quiz_attempt.completion_status = "uncompleted"
@@ -1673,7 +1649,6 @@ def mark_quiz_attempt_completed(request, pk):
     """
     try:
         quiz_attempt = QuizAttempt.objects.get(id=pk)
-        # print("***** Marking QuizAttempt id:", pk, " as completed.")
         quiz_attempt.completion_status = "completed"
         quiz_attempt.save()
         #   check to see if this quiz and user is part of an assignment, 
@@ -1696,7 +1671,6 @@ def mark_quiz_attempt_completed(request, pk):
         if assignment and user:
             # Then find the assignmentStudent with the same assignment id and user id
             assignment_student = AssignmentStudent.objects.filter(assignment_id=assignment.id, user_id=user.id).first()
-            # print("Found AssignmentStudent:", assignment_student)
             if assignment_student:
                 # mark the assignment student  status to completed as well
                 assignment_student.status = "completed"
@@ -1717,7 +1691,6 @@ def set_review_mode(request, pk):
         Mark the quiz attempt completed by setting the quiz attempt status to completed.
     """
     try:
-        # print("***** SETTING REVIEW MODE FOR QuizAttempt id:", pk)
         quiz_attempt = QuizAttempt.objects.get(id=pk)
        
         quiz_attempt.review_state = True
@@ -1739,13 +1712,10 @@ def replenish_incorrect_questions(request, pk):
         Get all incorrectly answered questions for a quiz attempt.
     """
     try:      
-        # print(" ------->>>>>>>>> in replenish incorrect questions, request.data:", request.data)
         # read starting_question_attempt_number from body
         starting_question_attempt_number = request.data.get('starting_question_attempt_number', 1)
-        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
         number_of_questions_to_load = request.data.get('number_of_questions_to_load', 1)
         # search for errorneous question attempts that have been corrected (using the corrected flag)
-        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
         errorneous_question_attempts = QuestionAttempt.objects.filter(
             quiz_attempt_id=pk, 
             error_flag=True, 
@@ -1756,7 +1726,6 @@ def replenish_incorrect_questions(request, pk):
         # for simplicity, retrieve only the first question attempt that is errorneous and not corrected, 
         # and return the question data for that question attempt, along with a flag indicating whether there are more incorrect questions to be replenished after this one (i.e. whether the count of errorneous_question_attempts is greater than 1)
         erroreous_attempts = errorneous_question_attempts.order_by('id')[:number_of_questions_to_load]
-        #print("Errorneous question attempts to be replenished for quiz_attempt id:", pk, ":", erroreous_attempts)
         combined = [
         {
             "question": QuestionSerializer(attempt.question).data,
@@ -1781,13 +1750,10 @@ def replenish_incorrect_questions_react_native(request, pk):
         Get all incorrectly answered questions for a quiz attempt.
     """
     try:      
-        # print(" ------->>>>>>>>> in replenish incorrect questions, request.data:", request.data)
         # read starting_question_attempt_number from body
         current_question_id = request.data.get('current_question_id', 1)
-        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
         number_of_questions_to_load = request.data.get('number_of_questions_to_load', 1)
         # search for errorneous question attempts that have been corrected (using the corrected flag)
-        # print("get_incorrect_questions called for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
         errorneous_question_attempts = QuestionAttempt.objects.filter(
             quiz_attempt_id=pk, 
             error_flag=True, 
@@ -1798,7 +1764,6 @@ def replenish_incorrect_questions_react_native(request, pk):
         # for simplicity, retrieve only the first question attempt that is errorneous and not corrected, 
         # and return the question data for that question attempt, along with a flag indicating whether there are more incorrect questions to be replenished after this one (i.e. whether the count of errorneous_question_attempts is greater than 1)
         erroreous_attempts = errorneous_question_attempts.order_by('id')[:number_of_questions_to_load]
-        #print("Errorneous question attempts to be replenished for quiz_attempt id:", pk, ":", erroreous_attempts)
         combined = [
         {
             "question": QuestionSerializer(attempt.question).data,
@@ -1878,7 +1843,6 @@ def get_incorrect_questions(request, pk):
         starting_question_attempt_number = request.data.get('starting_question_attempt_number', 1)
         number_of_questions_to_load = request.data.get('number_of_questions_to_load', 2)
         # search for errorneous question attempts that have been corrected (using the corrected flag)
-        # print("*********** get_incorrect_questions,  number of questions to load ", number_of_questions_to_load, " for quiz_attempt id:", pk, " starting_question_attempt_number:", starting_question_attempt_number)
         errorneous_question_attempts = QuestionAttempt.objects.filter(
             quiz_attempt_id=pk, 
             error_flag=True, 
@@ -1921,10 +1885,8 @@ def create_question_attempt(request, pk):
         if review_state_from_request == True or review_state_from_request == "review":
             quiz_attempt.review_state = True
             quiz_attempt.save()
-            # print("QuizAttempt id:", pk, "marked as review state due to question attempt creation with review state.")
             
         question_id = request.data.get('question_id', None)
-        #print("create_question_attempt for quiz_attempt id:", pk, " question_id:", question_id)
         if question_id is None:
             return Response({
                 "error": "question_id is required in the request data."
@@ -1938,7 +1900,6 @@ def create_question_attempt(request, pk):
    
         last_question_attempt = quiz_attempt.question_attempts.order_by('question_attempt_number').last()
         last_question_attempt_number = last_question_attempt.question_attempt_number if last_question_attempt else 0
-        # print("$$$$$$$ Last question attempt number:", last_question_attempt_number)
         question_attempt = QuestionAttempt.objects.create(
             quiz_attempt=quiz_attempt,
             question=question,
@@ -1992,7 +1953,6 @@ def create_next_question_attempt(request, pk):
                 corrected=False,
             ).count()
             
-            # print("NO MORE QUESTIONS TO LOAD, next_question is None:", next_question is None)
             return Response({
                     "next_question_attempt": None,
                     "next_question": None,
@@ -2024,10 +1984,8 @@ def create_next_question_attempt(request, pk):
 @api_view(["POST"])
 def process_live_question_attempt(request):
     try: 
-        #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         user_answer = request.data.get('user_answer', '')
         assessment_results =  check_answer(request.data.get('format', ''), user_answer, request.data.get('answer_key', ''))
-        #print(" type of assessment_results:", type(assessment_results))
         
         """
         assessment_results: {'error_flag': False, 'score': 5, 
@@ -2038,14 +1996,11 @@ def process_live_question_attempt(request):
         # let's access the score key of the dictionary
         score = assessment_results.get('score', 0)
         
-        #print(" ****** process_live_question_attempt, assessment_results:", assessment_results)
-        #print(" score to be published live:", assessment_results.score)
         """
          {'error_flag': False, 'score': 10, 
          'cloze_question_results': [{'user_answer': 'have', 'answer_key': 'have', 'error_flag': False, 'score': 5}, {'user_answer': 'seen', 'answer_key': 'seen', 'error_flag': False, 'score': 5}]}
         """
         from_user = request.data.get('user_name', 'anonymous')
-        #print(" Publishing live score for user:", from_user)
       
         """
           message_type: 'live_score',
@@ -2055,7 +2010,6 @@ def process_live_question_attempt(request):
         """
         # execute_command is a RedisJSON command to get the user document from Redis store, and access the live_total_score field in the user document, if not exist, initialize it to 0, then add the current score to the live_total_score,
         live_total_score = settings.R_CONN.execute_command('JSON.GET', f"user:{from_user}", '$.live_total_score')
-        #print(" ***** Retrieved live_total_score from Redis for user", from_user, ":", live_total_score)
         # live_total_score is an array
 
 
@@ -2063,32 +2017,26 @@ def process_live_question_attempt(request):
         if live_total_score:
         # Parse the JSON string into a Python list
             live_total_score_list = json.loads(live_total_score)
-            #print("Parsed live_total_score as list:", live_total_score_list)
         # IMPORTANT: since we are using JSON.GET with a path, the result is always a list, 
         # even if there is only one element in the list. 
         # So we need to extract the first element from the list to get the actual live_total_score value.
         # Extract the first (and only) element from the list
             live_total_score_int = int(live_total_score_list[0])
-            #print("Parsed live_total_score as integer:", live_total_score_int)
         else:
             # If the value doesn't exist, initialize it to 0
             live_total_score_int = 0
-            #print("live_total_score not found. Initialized to 0.")
             
         # compare live_total_score_int with 999
         if live_total_score_int >= 999:
-            #print("live_total_score is greater than or equal to 999, resetting to 0.")
             live_total_score_int = 0
             
         # add current score to live_total_score_int
         live_total_score_int += score
         # update live_total_score in Redis store using settings.R_CONN.execute_command with RedisJSON command to update the live_total_score field in the user document in Redis store
         settings.R_CONN.execute_command('JSON.SET', f"user:{from_user}", '$.live_total_score', json.dumps(live_total_score_int))
-        #print(" FINALLY live_total_score to be published for user", from_user, ":", live_total_score_int)
         score_data = {'message_type': 'live_score', 'content': {"score": score, "live_total_score": live_total_score_int , 'live_user_answer': user_answer }, 'user_name': from_user,}
         # notify other users via Redis channel 
         message = json.dumps(score_data)  # Convert entire data to JSON string because Redis only accepts strings, and we want to send a structured message that includes the score, live_total_score, and user_name, so we use a dictionary and convert it to a JSON string before sending it to Redis.
-        # print("Publishing live score to Redis channel 'notifications':", message)
         settings.R_CONN.publish('notifications', message)
         
         return Response({
@@ -2102,15 +2050,11 @@ def process_live_question_attempt(request):
 
 @api_view(["POST"])
 def process_video_question_attempt(request, pk):
-    #print("process_video_question_attempt called for question_attempt id:", pk, " request.data:", request.data)
     try: 
         # retrieve 
         active_segment_question_ids = request.data.get('active_segment_question_ids', [])
-        #print(" active_segment_question_ids received in request data:", active_segment_question_ids)
-        #print("process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
         
-        #print(" process_question_attempt, assessment_results:", assessment_results)
         error_flag = assessment_results.get('error_flag', True)
         
         score = 0 if error_flag else 5
@@ -2133,7 +2077,6 @@ def process_video_question_attempt(request, pk):
         
         # get next question
         next_question_number = question_attempt.question.question_number + 1
-            #print(" Next question number FOUND (if not, then it's an error):", next_question_number)
             # get the question in database based on next_question_number and quiz_id
         next_question = Question.objects.filter(quiz_id=question_attempt.quiz_attempt.quiz_id, question_number=next_question_number).first()
         if not next_question:
@@ -2148,14 +2091,12 @@ def process_video_question_attempt(request, pk):
        
         # NOT END of quiz, if next_question.id doesn't belong to active_segment_question_ids then print out a warning
         if str(next_question.id) not in active_segment_question_ids:
-            #print(" next question id doesn't belong to this segment. Return assessment results without next question id to client, and print a warning in the console.")
             return Response({
                     "assessment_results": assessment_results,
                     "quiz_attempt": { "completed": True, "score": quiz_attempt.score  }
                    
                 })
         else:
-            #print("next question belongs to segment, return results with next_questionId.....=", next_question.id, " returns it to client")
             return Response({
                     "assessment_results": assessment_results,
                     "quiz_attempt": { "completed": True, "score": quiz_attempt.score  },
@@ -2170,7 +2111,6 @@ def process_video_question_attempt(request, pk):
 
 @api_view(["POST"])
 def process_timeout(request, pk):
-    # print("process_timeout called for question_attempt id:", pk, " request.data:", request.data)
     try: 
         error_flag = True
         score = 0
@@ -2179,7 +2119,6 @@ def process_timeout(request, pk):
         question_attempt = QuestionAttempt.objects.get(id=pk)
         
         question_attempt.error_flag = error_flag
-        #print(" process_question_attempt, computed error_flag:", question_attempt.error_flag)
         question_attempt.score = score
         question_attempt.answer = "timeout"
         question_attempt.completed = True
@@ -2201,10 +2140,7 @@ def process_timeout(request, pk):
 @api_view(["POST"])
 def process_question_attempt(request, pk):
     try: 
-        # print(" ***************** process_question_attempt quiz attempt id", pk, " request.data:", request.data)
         assessment_results =  check_answer(request.data.get('format', ''), request.data.get('user_answer', ''), request.data.get('answer_key', ''))
-        #print(" ******* process_question_attempt, assessment_results:", assessment_results)
-        #print(" process_question_attempt, assessment_results:", assessment_results)
         error_flag = assessment_results.get('error_flag', True)
                
         score = 0 if error_flag else 5
@@ -2217,7 +2153,6 @@ def process_question_attempt(request, pk):
         
         question_attempt.error_flag = error_flag
         question_attempt.corrected = corrected
-        #print(" process_question_attempt, computed error_flag:", question_attempt.error_flag)
         question_attempt.score = score
         question_attempt.answer = request.data.get('user_answer', '')
         question_attempt.completed = True
@@ -2229,7 +2164,6 @@ def process_question_attempt(request, pk):
         
         
         if (not error_flag) and question_attempt.quiz_attempt.review_state:
-            #print(" This question attempt is correct, and quiz attempt is in review state, checking if there is an errorneous attempt for the same question to mark as corrected...")
             errorneous_attempts_for_same_question = QuestionAttempt.objects.filter(
                 quiz_attempt=question_attempt.quiz_attempt,
                 question=question_attempt.question,
@@ -2237,10 +2171,8 @@ def process_question_attempt(request, pk):
                 corrected=False
             )
             if errorneous_attempts_for_same_question.exists():
-                # print(" Found errorneous attempt(s) for the same question. id", question_attempt.question.id, "  Marking them as corrected.")
                 errorneous_attempts_for_same_question.update(corrected=True)
             else:
-                #print(" No errorneous attempts found for the same question.")
                 pass
         
         
@@ -2284,7 +2216,6 @@ def get_incorrect_count(request, pk):
 def update_question_attempt(request, pk):
         try: 
             question_attempt = QuestionAttempt.objects.get(id=pk)
-            print("update_question_attempt q attempt id", pk, " request.data:", request.data)
             
             # verify error_flag is present in request data
             if 'error_flag' not in request.data:
@@ -2303,7 +2234,6 @@ def update_question_attempt(request, pk):
                     "question_attempt_id": pk,
             })
             
-            #print("Updated QuestionAttempt question number", question_attempt.question.question_number)
       
         except QuestionAttempt.DoesNotExist:
               return Response({
@@ -2510,9 +2440,7 @@ def get_all_due_cards(request):
 
     # print this user's review rows for debug
     # if settings.DEBUG:
-        # print(f"===== get_all_due_cards: user={target_user} has {len(reviews)} review rows =====")
         # for review in reviews:
-        # print(f"  card id={review.card_id} text={review.card.text!r} next_review_at={review.next_review_at}")
 
     # Distractor pool drawn from all cards so multiple-choice options stay plausible.
     pool = _distractor_pool()
@@ -2887,14 +2815,6 @@ def request_password_reset(request):
     # (link shows up as uid=3D... and gets soft-wrapped/truncated at 76 chars),
     # so the link copied from the email body is broken. Print a clean, unwrapped
     # link to the runserver terminal in DEBUG — COPY THIS ONE, not the email body.
-    if settings.DEBUG:
-        print(
-            "\n" + "=" * 78
-            + f"\n  PASSWORD RESET for {user.username} <{user.email}>"
-            + "\n  Copy the link on the next line (NOT the one in the email body below):"
-            + f"\n  {reset_link}\n"
-            + "=" * 78 + "\n"
-        )
 
     send_mail(
         subject="Password reset",
