@@ -57,6 +57,7 @@ urlpatterns = [
     path("shadowing/send/", shadowing_views.shadowing_send, name="shadowing-send"),
     path("shadowing/assess/", shadowing_views.shadowing_assess, name="shadowing-assess"),
     path("shadowing/test/", shadowing_views.shadowing_test, name="shadowing-test"),
+    path("shadowing/analyze_reference/", shadowing_views.shadowing_analyze_reference, name="shadowing-analyze-reference"),
     path("shadowing/save_test/", shadowing_views.shadowing_save_test, name="shadowing-save-test"),
     path("shadowing/saved_tests/", shadowing_views.shadowing_saved_tests, name="shadowing-saved-tests"),
     path("shadowing/delete_saved_tests/", shadowing_views.shadowing_delete_saved_tests, name="shadowing-delete-saved-tests"),
@@ -68,6 +69,7 @@ urlpatterns = [
     path("shadowing/recognize_file/", shadowing_views.shadowing_recognize_file, name="shadowing-recognize-file"),
     path("shadowing/set_sentence_keywords/", shadowing_views.shadowing_set_sentence_keywords, name="shadowing-set-sentence-keywords"),
     path("shadowing/delete_sentence_files/", shadowing_views.shadowing_delete_sentence_files, name="shadowing-delete-sentence-files"),
+    path("shadowing/word_stress/", shadowing_views.shadowing_word_stress, name="shadowing-word-stress"),
     path("shadowing/sentence_audio/<int:sentence_id>/", shadowing_views.shadowing_sentence_audio, name="shadowing-sentence-audio"),
   
     #Microsoft Azure Text-to-Speech

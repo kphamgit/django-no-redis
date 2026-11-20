@@ -28,6 +28,12 @@ from english.utils import get_s3_audio_url
 # which requires VOICE_ANALYZER_API_KEY (the same key as VoiceAnalyzer_Claude's api_key.txt).
 EVALUATE_URL = os.environ.get("VOICE_ANALYZER_EVALUATE_URL", "http://127.0.0.1:8001/api/evaluate")
 EVALUATE_API_KEY = os.environ.get("VOICE_ANALYZER_API_KEY", "")
+# Its reference-only analysis (same server and key): the stress and melody of the stress words
+# measured from the reference audio alone, for the teacher's "Analyze reference audio" button.
+ANALYZE_REFERENCE_URL = os.environ.get(
+    "VOICE_ANALYZER_ANALYZE_REFERENCE_URL",
+    re.sub(r"/api/evaluate/?$", "/api/analyze-reference", EVALUATE_URL),
+)
 
 def _clean_sentence(text):
     """The sentence without TTS markup such as ElevenLabs' <break time="0.4s" /> (any <...>
@@ -343,6 +349,49 @@ def shadowing_test(request):
     return error or JsonResponse(evaluation)
 
 
+@api_view(["POST"])
+def shadowing_analyze_reference(request):
+    """Teacher only: what VoiceAnalyzer_Claude measures in the reference audio alone (no student
+    recording) for the given stress word(s): the stressed syllable, the dictionary's, and the
+    melody. Multipart: reference_file, sentence, stress_words, stress_source. Nothing is saved;
+    returns VoiceAnalyzer_Claude's reply (POST /api/analyze-reference)."""
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    reference = request.FILES.get("reference_file")
+    sentence = _clean_sentence(request.data.get("sentence"))
+    if not reference or not sentence:
+        return JsonResponse({"error": "A reference and the sentence are required."}, status=400)
+    name = reference.name or "reference.mp3"
+    try:
+        res = requests.post(
+            ANALYZE_REFERENCE_URL,
+            data={
+                "spoken_text": sentence,
+                "stress_words": (request.data.get("stress_words") or "").strip(),
+                "stress_source": "dictionary" if request.data.get("stress_source") == "dictionary" else "reference",
+            },
+            files={"reference_file": (name, reference.read(), "audio/wav" if name.endswith(".wav") else "audio/mpeg")},
+            headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
+            timeout=120,
+        )
+    except requests.RequestException as e:
+        print("shadowing: can't reach VoiceAnalyzer_Claude:", e)
+        return JsonResponse({"error": "Can't reach the voice assessment server."}, status=502)
+    try:
+        analysis = res.json()
+    except ValueError:
+        analysis = None
+    if not res.ok or not isinstance(analysis, dict):
+        # FastAPI: {detail: "..."}, or a list of problems for a rejected request.
+        detail = analysis.get("detail") if isinstance(analysis, dict) else None
+        if isinstance(detail, list):
+            detail = "; ".join(str(d.get("msg", d)) for d in detail)
+        return JsonResponse(
+            {"error": detail or f"Analyzing the reference failed ({res.status_code})."}, status=502
+        )
+    return JsonResponse(analysis)
+
+
 SAVED_TESTS_PREFIX = f"{settings.SHADOWING_S3_ROOT}audios/shadowing_tests/"  # dev/audios/... locally
 SAVED_TEST_FOLDER_RE = re.compile(r"[A-Za-z0-9_-]+")  # e.g. 2026-11-18_160222_991267
 
@@ -548,7 +597,7 @@ def shadowing_save_sentence(request):
         options=_options_from(request.data),
         created_by=request.user,
     )
-    return JsonResponse(_sentence_json(row))
+    return JsonResponse({**_sentence_json(row), "s3_key": s3_key})
 
 
 @api_view(["GET"])
@@ -757,3 +806,39 @@ def shadowing_sentence_audio(request, sentence_id):
         print("shadowing_sentence_audio: can't read", row.s3_key, e)
         return JsonResponse({"error": "The audio couldn't be read from S3."}, status=502)
     return HttpResponse(body, content_type="audio/mpeg")
+
+
+
+
+@api_view(["GET"])
+def shadowing_word_stress(request):
+    """Teacher only. ?word=apology: the word's stress pattern from the CMU dictionary, for the
+    "Get stress pattern and Melody" button next to a stress word. No audio is involved.
+    Returns {word, found, pronunciations: [{arpabet, stresses, hyphenated}]}: one entry per
+    distinct stress pattern among the CMU pronunciations (two for record / present), first =
+    the most common. stresses = the CMU digit per syllable (1 primary, 2 secondary, 0 none);
+    hyphenated = the spelled syllables (["a", "pol", "o", "gy"]) or None when the hyphenation
+    doesn't have one part per syllable."""
+    from english.utils import _get_cmudict
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    word = (request.GET.get("word") or "").strip()
+    key = word.lower().replace("\u2019", "'")
+    if not key:
+        return JsonResponse({"error": "No word given."}, status=400)
+    out = []
+    seen = set()
+    for phonemes in _get_cmudict().get(key) or []:
+        stresses = [int(p[-1]) for p in phonemes if p[-1].isdigit()]
+        if not stresses or tuple(stresses) in seen:
+            continue
+        seen.add(tuple(stresses))
+        primary = stresses.index(1) + 1 if 1 in stresses else None
+        try:
+            parts = _hyphenated_syllables(key, len(stresses), primary) if len(stresses) > 1 else [key]
+        except Exception as e:  # never let the hyphenation break the lookup
+            print("shadowing_word_stress: hyphenation failed for", key, e)
+            parts = None
+        out.append({"arpabet": " ".join(phonemes), "stresses": stresses, "hyphenated": parts})
+    return JsonResponse({"word": word, "found": bool(out), "pronunciations": out})
