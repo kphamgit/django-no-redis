@@ -288,8 +288,9 @@ def shadowing_assess(request):
     reference_bytes = _s3().get_object(
         Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=exercise["s3_key"]
     )["Body"].read()
+    recorded_bytes = recorded.read()
     evaluation, error = _evaluate(
-        exercise["sentence"], exercise["options"], reference_bytes, "reference.mp3", recorded.read()
+        exercise["sentence"], exercise["options"], reference_bytes, "reference.mp3", recorded_bytes
     )
     if error:
         return error
@@ -297,10 +298,15 @@ def shadowing_assess(request):
     user_name = request.user.username
     results_key = _results_key(exercise["shadowing_id"])
     previous = settings.R_CONN.hget(results_key, user_name)
+    redis_attempt = json.loads(previous)["attempt"] if previous else 0
+    take = _save_take(request.user, exercise, evaluation, recorded_bytes, redis_attempt)
     result = {
         "user_name": user_name,
         "shadowing_id": exercise["shadowing_id"],
-        "attempt": (json.loads(previous)["attempt"] + 1) if previous else 1,
+        "attempt": take["attempt"],
+        # The students_shadowing row, for the teacher to play the recording
+        # (/api/shadowing/take_recording/<take_id>/); None if it couldn't be kept.
+        "take_id": take["id"] if take["recording_s3_key"] else None,
         "at": timezone.now().isoformat(),
         "evaluation": evaluation,
     }
@@ -312,6 +318,67 @@ def shadowing_assess(request):
         "content": result,
     }))
     return JsonResponse(evaluation)
+
+
+STUDENT_RECORDINGS_PREFIX = f"{settings.SHADOWING_S3_ROOT}audios/students_shadowing_recordings/"  # dev/... locally
+
+
+def _save_take(user, exercise, evaluation, recorded_bytes, redis_attempt):
+    """Keeps a student's take: the recording in S3 under STUDENT_RECORDINGS_PREFIX and a row in
+    students_shadowing (StudentShadowing). attempt = 1, 2, 3... per student and exercise, one more
+    than the highest kept in the database or in Redis. A failed upload or save is logged and
+    doesn't stop the student getting their result. Returns {attempt, recording_s3_key, id}."""
+    from django.db import IntegrityError, transaction
+    from django.db.models import Max
+
+    from .models import StudentShadowing
+
+    shadowing_id = exercise["shadowing_id"]
+    summary = evaluation.get("summary") or {}
+    stress_check = evaluation.get("word_stress_check") or {}
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", user.username) or "student"
+    for _ in range(3):  # two takes sent at once could pick the same number: retry
+        last = StudentShadowing.objects.filter(
+            user_name=user.username, shadowing_id=shadowing_id
+        ).aggregate(m=Max("attempt"))["m"] or 0
+        attempt = max(last, redis_attempt) + 1
+        s3_key = f"{STUDENT_RECORDINGS_PREFIX}{shadowing_id}/{safe_name}_attempt{attempt}.wav"
+        try:
+            with transaction.atomic():
+                row = StudentShadowing.objects.create(
+                    student=user,
+                    user_name=user.username,
+                    shadowing_id=shadowing_id,
+                    sentence=exercise.get("sentence", ""),
+                    attempt=attempt,
+                    recording_s3_key=s3_key,
+                    overall_score_pct=summary.get("overall_score_pct"),
+                    pronunciation_score_pct=summary.get("pronunciation_score_pct"),
+                    stress_match_pct=summary.get("stress_match_pct"),
+                    word_stress_score_pct=stress_check.get("score_pct"),
+                    melody_score_pct=stress_check.get("pitch_direction_score_pct"),
+                    options=exercise.get("options") or {},
+                    evaluation=evaluation,
+                )
+        except IntegrityError:
+            continue
+        except Exception as e:
+            print("shadowing: saving the take failed for", user.username, e)
+            return {"attempt": attempt, "recording_s3_key": "", "id": None}
+        break
+    else:
+        print("shadowing: couldn't number the take for", user.username)
+        return {"attempt": redis_attempt + 1, "recording_s3_key": "", "id": None}
+
+    try:
+        _s3().put_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key, Body=recorded_bytes, ContentType="audio/wav"
+        )
+    except Exception as e:
+        print("shadowing: uploading the recording failed for", user.username, e)
+        StudentShadowing.objects.filter(pk=row.pk).update(recording_s3_key="")
+        s3_key = ""
+    return {"attempt": attempt, "recording_s3_key": s3_key, "id": row.pk}
 
 
 @api_view(["GET"])
@@ -799,6 +866,27 @@ def shadowing_delete_sentence_files(request):
     _, deleted_per_model = ShadowingSentence.objects.filter(s3_key__in=keys).delete()
     sentences_deleted = deleted_per_model.get(ShadowingSentence._meta.label, 0)
     return JsonResponse({"deleted": keys, "sentences_deleted": sentences_deleted})
+
+
+@api_view(["GET"])
+def shadowing_take_recording(request, take_id):
+    """Teacher only: a student's recorded WAV for one take (students_shadowing row take_id),
+    through Django so the teacher's panel can fetch it with its login and play it."""
+    from django.http import HttpResponse
+
+    from .models import StudentShadowing
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    row = StudentShadowing.objects.filter(id=take_id).first()
+    if row is None or not row.recording_s3_key:
+        return JsonResponse({"error": "That recording isn't available."}, status=404)
+    try:
+        body = _s3().get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=row.recording_s3_key)["Body"].read()
+    except Exception as e:
+        print("shadowing_take_recording: can't read", row.recording_s3_key, e)
+        return JsonResponse({"error": "The recording couldn't be read from S3."}, status=502)
+    return HttpResponse(body, content_type="audio/wav")
 
 
 @api_view(["GET"])

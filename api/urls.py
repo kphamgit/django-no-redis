@@ -70,6 +70,7 @@ urlpatterns = [
     path("shadowing/set_sentence_keywords/", shadowing_views.shadowing_set_sentence_keywords, name="shadowing-set-sentence-keywords"),
     path("shadowing/delete_sentence_files/", shadowing_views.shadowing_delete_sentence_files, name="shadowing-delete-sentence-files"),
     path("shadowing/word_stress/", shadowing_views.shadowing_word_stress, name="shadowing-word-stress"),
+    path("shadowing/take_recording/<int:take_id>/", shadowing_views.shadowing_take_recording, name="shadowing-take-recording"),
     path("shadowing/sentence_audio/<int:sentence_id>/", shadowing_views.shadowing_sentence_audio, name="shadowing-sentence-audio"),
   
     #Microsoft Azure Text-to-Speech

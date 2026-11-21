@@ -286,3 +286,37 @@ class ShadowingSentence(models.Model):
 
     def __str__(self):
         return self.sentence[:60]
+
+
+class StudentShadowing(models.Model):
+    """One shadowing take by a student: the result the teacher receives, kept for good (Redis keeps
+    it only while the exercise lasts). The recording is in S3 at recording_s3_key
+    (audios/students_shadowing_recordings/<shadowing_id>/<user>_attempt<n>.wav)."""
+    student = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="shadowing_takes")
+    user_name = models.CharField(max_length=150)  # kept if the account is deleted
+    shadowing_id = models.CharField(max_length=64, db_index=True)  # the exercise the teacher sent
+    sentence = models.TextField()
+    # 1, 2, 3... per student and exercise: tells apart the takes of the same sentence.
+    attempt = models.PositiveIntegerField()
+    recording_s3_key = models.CharField(max_length=255, blank=True, default="")  # "" if the upload failed
+    # The main scores, for listing and sorting (null when not measured); the rest is in evaluation.
+    overall_score_pct = models.FloatField(null=True, blank=True)
+    pronunciation_score_pct = models.FloatField(null=True, blank=True)
+    stress_match_pct = models.FloatField(null=True, blank=True)       # sentence stress
+    word_stress_score_pct = models.FloatField(null=True, blank=True)  # Word Syllables Stress Check
+    melody_score_pct = models.FloatField(null=True, blank=True)       # its melody part
+    options = models.JSONField(default=dict, blank=True)     # the teacher's scoring options
+    evaluation = models.JSONField(default=dict, blank=True)  # VoiceAnalyzer_Claude's full reply
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "students_shadowing"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user_name", "shadowing_id", "attempt"],
+                                    name="students_shadowing_unique_attempt"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_name} #{self.attempt}: {self.sentence[:40]}"
