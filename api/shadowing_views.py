@@ -352,6 +352,7 @@ def _save_take(user, exercise, evaluation, recorded_bytes, redis_attempt):
                     sentence=exercise.get("sentence", ""),
                     attempt=attempt,
                     recording_s3_key=s3_key,
+                    reference_s3_key=exercise.get("s3_key", ""),
                     overall_score_pct=summary.get("overall_score_pct"),
                     pronunciation_score_pct=summary.get("pronunciation_score_pct"),
                     stress_match_pct=summary.get("stress_match_pct"),
@@ -866,6 +867,108 @@ def shadowing_delete_sentence_files(request):
     _, deleted_per_model = ShadowingSentence.objects.filter(s3_key__in=keys).delete()
     sentences_deleted = deleted_per_model.get(ShadowingSentence._meta.label, 0)
     return JsonResponse({"deleted": keys, "sentences_deleted": sentences_deleted})
+
+
+STUDENT_RECORDINGS_LIST_LIMIT = 500
+
+
+@api_view(["GET"])
+def shadowing_student_recordings(request):
+    """Teacher only: the students' shadowing takes for the teacher app's Utils → Students
+    Shadowing Audios tab. Each students_shadowing row (newest first, at most
+    STUDENT_RECORDINGS_LIST_LIMIT; ?student=<user name> for one student) with the S3 recording its
+    recording_s3_key points to (file is null if missing), and the recordings in S3 under
+    audios/students_shadowing_recordings/ that no row points to. The full analyzer reply isn't
+    sent, only the scores and the transcript.
+    Returns {prefix, limit, students: [user names], takes: [{id, user_name, shadowing_id, sentence,
+    attempt, created_at, stress_words, stress_source, overall_score_pct, pronunciation_score_pct,
+    stress_match_pct, word_stress_score_pct, melody_score_pct, heard_transcript, s3_key,
+    file: {size, last_modified} | null, audio_url | null, reference_s3_key,
+    reference_audio_url | null}], orphan_files: [{key, size,
+    last_modified, url}]}."""
+    from .models import StudentShadowing
+
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Teachers only."}, status=403)
+    objects = {
+        o["Key"]: o
+        for page in _s3().get_paginator("list_objects_v2").paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=STUDENT_RECORDINGS_PREFIX
+        )
+        for o in page.get("Contents", [])
+    }
+    # Every row's key, so a file is an orphan only if no row at all (shown or not) points to it.
+    row_keys = set(
+        StudentShadowing.objects.exclude(recording_s3_key="").values_list("recording_s3_key", flat=True)
+    )
+    # The exercises' reference audio still in S3 (an S3 rule clears that folder after 2 days).
+    references = {
+        o["Key"]
+        for page in _s3().get_paginator("list_objects_v2").paginate(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=f"{settings.SHADOWING_S3_ROOT}audios/shadowing/"
+        )
+        for o in page.get("Contents", [])
+    }
+    rows = StudentShadowing.objects.all()  # newest first (Meta.ordering)
+    student = (request.GET.get("student") or "").strip()
+    if student:
+        rows = rows.filter(user_name=student)
+    takes = []
+    for r in rows.values(
+        "id", "user_name", "shadowing_id", "sentence", "attempt", "created_at", "recording_s3_key",
+        "reference_s3_key",
+        "overall_score_pct", "pronunciation_score_pct", "stress_match_pct", "word_stress_score_pct",
+        "melody_score_pct", "options__stress_words", "options__stress_source",
+        "evaluation__summary__heard_transcript",
+    )[:STUDENT_RECORDINGS_LIST_LIMIT]:
+        key = r["recording_s3_key"]
+        obj = objects.get(key) if key else None
+        takes.append({
+            "id": r["id"],
+            "user_name": r["user_name"],
+            "shadowing_id": r["shadowing_id"],
+            "sentence": r["sentence"],
+            "attempt": r["attempt"],
+            "created_at": r["created_at"].isoformat(),
+            "stress_words": r["options__stress_words"] or "",
+            "stress_source": r["options__stress_source"] or "",
+            "overall_score_pct": r["overall_score_pct"],
+            "pronunciation_score_pct": r["pronunciation_score_pct"],
+            "stress_match_pct": r["stress_match_pct"],
+            "word_stress_score_pct": r["word_stress_score_pct"],
+            "melody_score_pct": r["melody_score_pct"],
+            "heard_transcript": r["evaluation__summary__heard_transcript"] or "",
+            "s3_key": key,
+            "file": {"size": obj["Size"], "last_modified": obj["LastModified"].isoformat()} if obj else None,
+            "audio_url": get_s3_audio_url(key) if obj else None,  # valid for an hour
+            "reference_s3_key": r["reference_s3_key"],
+            # null when the take has no reference key (saved before it was kept) or the file is gone
+            "reference_audio_url": (
+                get_s3_audio_url(r["reference_s3_key"]) if r["reference_s3_key"] in references else None
+            ),
+        })
+    orphan_files = [
+        {
+            "key": o["Key"],
+            "size": o["Size"],
+            "last_modified": o["LastModified"].isoformat(),
+            "url": get_s3_audio_url(o["Key"]),
+        }
+        for o in sorted(
+            (o for k, o in objects.items() if k not in row_keys),
+            key=lambda o: o["LastModified"], reverse=True,
+        )
+    ]
+    students = list(
+        StudentShadowing.objects.order_by("user_name").values_list("user_name", flat=True).distinct()
+    )
+    return JsonResponse({
+        "prefix": STUDENT_RECORDINGS_PREFIX,
+        "limit": STUDENT_RECORDINGS_LIST_LIMIT,
+        "students": students,
+        "takes": takes,
+        "orphan_files": orphan_files,
+    })
 
 
 @api_view(["GET"])

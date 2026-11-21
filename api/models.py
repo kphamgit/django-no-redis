@@ -300,6 +300,9 @@ class StudentShadowing(models.Model):
     # 1, 2, 3... per student and exercise: tells apart the takes of the same sentence.
     attempt = models.PositiveIntegerField()
     recording_s3_key = models.CharField(max_length=255, blank=True, default="")  # "" if the upload failed
+    # The reference the student shadowed (the exercise's audio, audios/shadowing/<shadowing_id>.mp3).
+    # That folder is cleared by an S3 rule after 2 days, so the file may be gone later.
+    reference_s3_key = models.CharField(max_length=255, blank=True, default="")
     # The main scores, for listing and sorting (null when not measured); the rest is in evaluation.
     overall_score_pct = models.FloatField(null=True, blank=True)
     pronunciation_score_pct = models.FloatField(null=True, blank=True)
