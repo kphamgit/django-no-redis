@@ -389,6 +389,20 @@ def shadowing_analyze_reference(request):
         return JsonResponse(
             {"error": detail or f"Analyzing the reference failed ({res.status_code})."}, status=502
         )
+    # The syllables as spelled (["a", "pol", "o", "gy"], or None), as in the assessment results.
+    for w in analysis.get("words") or []:
+        count = w.get("syllable_count") or 0
+        try:
+            w["hyphenated"] = (
+                _hyphenated_syllables(
+                    re.sub(r"[^A-Za-z']", "", str(w.get("word", ""))).lower(), count,
+                    w.get("expected_stressed_syllable") or w.get("reference_stressed_syllable"),
+                )
+                if count > 1 else None
+            )
+        except Exception as e:  # never let the dictionary break a result
+            print("shadowing: hyphenation failed for", w.get("word"), e)
+            w["hyphenated"] = None
     return JsonResponse(analysis)
 
 
