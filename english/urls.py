@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import audio_views, views
 from django.http import JsonResponse
 
 urlpatterns = [
@@ -85,6 +85,9 @@ urlpatterns = [
     path("viet-dictionary/words/", views.list_viet_dictionary_words, name="viet-dictionary-words"),
     path("tokenize-text/", views.tokenize_text, name="tokenize-text"),
     path("google_tts/", views.google_tts, name="google-tts"),
+    path("audios/", audio_views.audios, name="audios"),
+    path("audios/<int:pk>/", audio_views.audio_detail, name="audio-detail"),
+    path("audios/<int:pk>/file/", audio_views.audio_file, name="audio-file"),
     # populate-longman-dictionary
     path("delete-dictionary-entry/", views.delete_dictionary_entry, name="delete-dictionary-entry"),
     path("populate-longman-dictionary/", views.populate_longman_dictionary, name="populate-longman-dictionary"),

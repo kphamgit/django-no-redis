@@ -1,16 +1,39 @@
 from rest_framework import serializers
 #from .models import Note
-from api.models import Unit, Quiz, Question, Card, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
+from api.models import Audio, Unit, Quiz, Question, Card, Category, Level, VideoSegment, DictEntry, PartOfSpeech, Sense, Example, Idiom
 from django.contrib.auth.models import User
 import json
 from .utils import hyphenation, respell_in_vietnamese
 
+class AudioSerializer(serializers.ModelSerializer):
+    """An audio as the API returns it: the p2p-voice-chat server's shape, plus made_for,
+    shadowing_options, created_by (user name) and question_count (how many questions use it)."""
+    created_by = serializers.SerializerMethodField()
+    question_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Audio
+        fields = ["id", "url", "text", "tts_text", "provider", "voice", "speed", "kept",
+                  "keywords", "made_for", "shadowing_options", "created_by", "created_at", "question_count"]
+
+    def get_created_by(self, audio):
+        return audio.created_by.username if audio.created_by else None
+
+    def get_question_count(self, audio):
+        count = getattr(audio, "question_count", None)  # annotated by search_kept
+        return audio.questions.count() if count is None else count
+
+
 class QuestionSerializer(serializers.ModelSerializer):
+    # Read: the question's audio as an object (null if none). Write: its id as audio_id (null for none).
+    audio = AudioSerializer(read_only=True)
+    audio_id = serializers.PrimaryKeyRelatedField(source="audio", queryset=Audio.objects.all(),
+                                                  allow_null=True, required=False, write_only=True)
     #video_segment = serializers.PrimaryKeyRelatedField(queryset=VideoSegment.objects.all(), required=False, allow_null=False)
     class Meta:
         model = Question
         fields = ["id", "quiz_id", "video_segment_id", "question_number", "question_purpose", "content", "content_language", "format", "answer_key", "instructions", 
-        "prompt", "audio_str", "score", "button_cloze_options", "timeout", "hint", "explanation"]
+        "prompt", "audio", "audio_id", "score", "button_cloze_options", "timeout", "hint", "explanation"]
         #fields = '__all__'
 
 class UnitSerializer(serializers.ModelSerializer):

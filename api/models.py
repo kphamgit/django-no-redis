@@ -1,4 +1,5 @@
 # Create your models here.
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MaxValueValidator
@@ -63,13 +64,55 @@ class VideoSegment(models.Model):
     def __str__(self):
         return f"Segment from {self.start_time} to {self.end_time}"
     
+class Audio(models.Model):
+    """One generated voice: an MP3 in S3 at s3_key, never overwritten, plus what it says and how it
+    was made. Same design as the Audio table of the p2p-voice-chat server (its prisma/schema.prisma):
+    the file is public at audios/library/<uuid>.mp3 (dev/audios/library/<uuid>.mp3 from a local
+    server), the library that questions and the live Shadowing exercise draw audio from. Questions
+    point to audios by id and may share one. An audio is kept for good once `kept` is set; one that
+    isn't kept and that no question uses (e.g. a discarded take) is deleted after a day (row, then file)."""
+    s3_key = models.CharField(max_length=255, unique=True)
+    text = models.TextField()  # what the voice says, markup removed, as students see it
+    tts_text = models.TextField(blank=True, default="")  # the SSML / tagged text it was made from, "" if same as text
+    provider = models.CharField(max_length=30)  # TTS provider, e.g. "google", "elevenlabs"
+    voice = models.CharField(max_length=120)    # the provider's voice id
+    speed = models.FloatField(null=True, blank=True)
+    kept = models.BooleanField(default=False)  # chosen to keep for reuse: listed in searches, never deleted automatically
+    keywords = ArrayField(models.CharField(max_length=50), default=list, blank=True)  # lower-case
+    # What it was made for: the screen that generated or saved it. The library is shared; this
+    # only lets each screen list its own kind first.
+    MADE_FOR_CHOICES = [("question", "Question"), ("shadowing", "Shadowing")]
+    made_for = models.CharField(max_length=20, choices=MADE_FOR_CHOICES, default="question")
+    # The Shadowing panel's scoring options when it was saved there (as shadowing_send takes them);
+    # {} for the others.
+    shadowing_options = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="audios")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["kept", "created_at"], name="api_audio_kept_created_idx")]
+
+    @property
+    def url(self):
+        """The MP3's public URL (the bucket policy makes audios/library/* readable)."""
+        return (f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}"
+                f".amazonaws.com/{self.s3_key}")
+
+    def __str__(self):
+        return self.text[:60]
+
+
 class Question(models.Model):
     question_number = models.IntegerField(default=0)
     format = models.PositiveSmallIntegerField(
         validators=[MaxValueValidator(255)], # Restrict range to 0-255
         default=0
     )
-    audio_str = models.CharField(max_length=500, blank=True, null=True, default="")
+    # The question's audio (its voice), or none. Several questions may share one; an audio a
+    # question uses can't be deleted (PROTECT), so the cleanup only removes unused ones.
+    audio = models.ForeignKey("Audio", on_delete=models.PROTECT, null=True, blank=True,
+                              related_name="questions")
     instructions = models.TextField(max_length=500000, blank=True,null=True, default="")
     prompt = models.TextField(max_length=5000, blank=True,null=True, default="")
     content = models.TextField(max_length=5000, default="")
@@ -267,31 +310,10 @@ class Example(models.Model):
     
     
 
-class ShadowingSentence(models.Model):
-    """A reference sentence the teacher liked enough to keep (Shadowing panel, "Save sentence").
-    The audio is in S3 at s3_key (audios/shadowing_sentences/<folder>/reference.mp3); this row
-    makes it searchable by its words and the teacher's keywords."""
-    sentence = models.TextField()  # the words only (markup removed), as students see it
-    tts_text = models.TextField(blank=True, default="")  # the SSML, if the audio was made from one
-    keywords = ArrayField(models.CharField(max_length=50), default=list, blank=True)  # lower-case
-    s3_key = models.CharField(max_length=255)
-    voice = models.CharField(max_length=120, blank=True, default="")  # label, e.g. "11L Matilda · 0.7×"
-    tts = models.JSONField(default=dict, blank=True)      # {provider, voice, speed, ssml_rate}
-    options = models.JSONField(default=dict, blank=True)  # scoring options set when it was saved
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return self.sentence[:60]
-
-
 class StudentShadowing(models.Model):
     """One shadowing take by a student: the result the teacher receives, kept for good (Redis keeps
     it only while the exercise lasts). The recording is in S3 at recording_s3_key
-    (audios/students_shadowing_recordings/<shadowing_id>/<user>_attempt<n>.wav)."""
+    (audios/live_students_shadowing_recordings/<shadowing_id>/<user>_attempt<n>.wav)."""
     student = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
                                 related_name="shadowing_takes")
     user_name = models.CharField(max_length=150)  # kept if the account is deleted
@@ -300,7 +322,7 @@ class StudentShadowing(models.Model):
     # 1, 2, 3... per student and exercise: tells apart the takes of the same sentence.
     attempt = models.PositiveIntegerField()
     recording_s3_key = models.CharField(max_length=255, blank=True, default="")  # "" if the upload failed
-    # The reference the student shadowed (the exercise's audio, audios/shadowing/<shadowing_id>.mp3).
+    # The reference the student shadowed (the exercise's audio, audios/temp_shadowing_sentences/<shadowing_id>.mp3).
     # That folder is cleared by an S3 rule after 2 days, so the file may be gone later.
     reference_s3_key = models.CharField(max_length=255, blank=True, default="")
     # The main scores, for listing and sorting (null when not measured); the rest is in evaluation.

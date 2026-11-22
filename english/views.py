@@ -139,7 +139,7 @@ class QuestionListView(generics.ListAPIView):
 
     def get_queryset(self):
         pk = self.kwargs.get('pk')
-        queryset = Question.objects.filter(quiz_id=pk).order_by('question_number')
+        queryset = Question.objects.filter(quiz_id=pk).select_related('audio').order_by('question_number')
         return queryset
 
 class QuestionPartialListView(generics.GenericAPIView):
@@ -157,7 +157,7 @@ class QuestionPartialListView(generics.GenericAPIView):
         questions = Question.objects.filter(
             quiz_id=pk,
             question_number__gte=starting_question_number
-        ).order_by('question_number')[:3]
+        ).select_related('audio').order_by('question_number')[:3]
         
         has_more = Question.objects.filter(
             quiz_id=pk,
@@ -196,7 +196,7 @@ class QuestionRangeListView(generics.GenericAPIView):
         questions = Question.objects.filter(
             quiz_id=pk,
             question_number__gte=starting_question_number
-        ).order_by('question_number')[:number_of_questions]
+        ).select_related('audio').order_by('question_number')[:number_of_questions]
         
         if questions.exists():
             return Response({
@@ -236,7 +236,6 @@ class QuestionCreateView(generics.ListCreateAPIView):
                 answer_key=self.request.data.get('answer_key'),
                 instructions=self.request.data.get('instructions'),
                 prompt=self.request.data.get('prompt'),
-                audio_str=self.request.data.get('audio_str'),
                 button_cloze_options=self.request.data.get('button_cloze_options', None),
                 video_segment_id=self.request.data.get('video_segment_id', None),
             )
@@ -544,7 +543,7 @@ class QuestionCloneView(generics.CreateAPIView):
                 answer_key=original_question.answer_key,
                 instructions=original_question.instructions,
                 prompt=original_question.prompt,
-                audio_str=original_question.audio_str,
+                audio_id=original_question.audio_id,  # the clone shares the audio
                 button_cloze_options=original_question.button_cloze_options,
                 video_segment_id=original_question.video_segment_id,
                 timeout = original_question.timeout,
