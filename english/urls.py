@@ -86,6 +86,8 @@ urlpatterns = [
     path("tokenize-text/", views.tokenize_text, name="tokenize-text"),
     path("google_tts/", views.google_tts, name="google-tts"),
     path("audios/", audio_views.audios, name="audios"),
+    path("audios/check/", audio_views.audios_check, name="audios-check"),
+    path("audios/stray/", audio_views.audio_stray_file, name="audio-stray-file"),
     path("audios/<int:pk>/", audio_views.audio_detail, name="audio-detail"),
     path("audios/<int:pk>/file/", audio_views.audio_file, name="audio-file"),
     # populate-longman-dictionary

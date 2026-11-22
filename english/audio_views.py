@@ -1,12 +1,14 @@
 """The audio endpoints (teachers only), under /english/audios/. See english/audio.py."""
+from django.conf import settings
 from django.db.models import ProtectedError
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from api.models import Audio
-from .audio import (TtsInputError, create_audio, delete_audio, existing_keys, keywords_from,
-                    maybe_delete_unused_audios, read_audio, search_kept)
+from .audio import (AUDIO_PREFIX, TtsInputError, check_library, create_audio, delete_audio,
+                    delete_stray_file, existing_keys, keywords_from, maybe_delete_unused_audios,
+                    read_audio, search_audios)
 from .serializers import AudioSerializer
 
 
@@ -21,15 +23,18 @@ def audios(request):
     """POST {text, provider ("google" | "elevenlabs" | "polly"), voice, speed?, made_for?}: generate
     a voice and keep it as a new audio (a question uses it once saved with its audio_id). 201 + the
     audio.
-    GET: the kept audios. ?q=words: only the ones whose text or keywords contain every word;
-    ?made_for=shadowing|question: only that kind; ?prefer=shadowing|question: that kind first;
-    ?check_files=1: add file_exists (whether its MP3 is in S3) to each. At most 200, newest first."""
+    GET: the kept audios. ?kept=0: the ones not kept instead; ?kept=all: both. ?q=words: only the
+    ones whose text or keywords contain every word; ?made_for=shadowing|question: only that kind;
+    ?prefer=shadowing|question: that kind first; ?check_files=1: add file_exists (whether its MP3
+    is in S3) to each. At most 200, newest first."""
     denied = _teachers_only(request)
     if denied:
         return denied
     if request.method == "GET":
         params = request.query_params
-        rows = search_kept(params.get("q", ""), made_for=params.get("made_for"), prefer=params.get("prefer"))
+        kept = {"all": None, "0": False, "false": False}.get(params.get("kept", "1"), True)
+        rows = search_audios(params.get("q", ""), made_for=params.get("made_for"),
+                             prefer=params.get("prefer"), kept=kept)
         data = AudioSerializer(rows, many=True).data
         if params.get("check_files") in ("1", "true"):
             keys = existing_keys()
@@ -55,6 +60,47 @@ def audios(request):
         return Response({"error": f"Generating the voice failed: {e}"}, status=502)
     maybe_delete_unused_audios()
     return Response(AudioSerializer(audio).data, status=201)
+
+
+@api_view(["GET"])
+def audios_check(request):
+    """GET /english/audios/check/: the S3 folder compared with the rows: {prefix, stray_files:
+    [{key, url, size, last_modified}] (files no row points to, oldest first), missing_files:
+    [audio] (rows whose file isn't in S3)}. Lists the whole folder, so pages run it on request."""
+    denied = _teachers_only(request)
+    if denied:
+        return denied
+    try:
+        stray, missing = check_library()
+    except Exception as e:
+        print("audios_check failed:", e)
+        return Response({"error": f"Checking the library against S3 failed: {e}"}, status=502)
+    base = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/"
+    return Response({
+        "prefix": AUDIO_PREFIX,
+        "stray_files": [{"key": f["key"], "url": base + f["key"], "size": f["size"],
+                         "last_modified": f["last_modified"].isoformat()} for f in stray],
+        "missing_files": AudioSerializer(missing, many=True).data,
+    })
+
+
+@api_view(["DELETE"])
+def audio_stray_file(request):
+    """DELETE /english/audios/stray/?key=<s3 key>: delete a library file no row points to (one the
+    check listed). 409 if a row points to it (delete that audio instead). 204."""
+    denied = _teachers_only(request)
+    if denied:
+        return denied
+    try:
+        deleted = delete_stray_file(request.query_params.get("key", ""))
+    except ValueError as e:
+        return Response({"error": str(e)}, status=400)
+    except Exception as e:
+        print("audio_stray_file failed:", e)
+        return Response({"error": "The file couldn't be deleted from S3."}, status=502)
+    if not deleted:
+        return Response({"error": "An audio row points to this file: delete that audio instead."}, status=409)
+    return Response(status=204)
 
 
 @api_view(["PATCH", "DELETE"])

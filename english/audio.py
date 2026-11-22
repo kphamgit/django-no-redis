@@ -8,8 +8,12 @@ uses (a discarded take, a form closed without saving) is deleted a day later.
 
 The MP3s are public (the bucket policy grants s3:GetObject on audios/library/* and
 dev/audios/library/*), at audios/library/<uuid>.mp3 (dev/audios/library/<uuid>.mp3 from a local
-server, see SHADOWING_S3_ROOT), and never overwritten. Files without an Audio row (e.g. the p2p
-app's leftovers under question-audios/) are never touched.
+server, see SHADOWING_S3_ROOT), and never overwritten.
+
+The rows are the source of truth: questions point to rows, and every write goes through them (file
+then row to create, row then file to delete). check_library compares the folder with the rows, for
+the rare drift: a file no row points to (a failed save or delete, a reset database) or a row whose
+file is gone (deleted directly in S3). The cleanup deletes such stray files once they're a day old.
 """
 import re
 import time
@@ -170,11 +174,18 @@ def create_audio(text, provider, voice, speed=None, created_by=None, made_for="q
 
 
 def search_kept(query="", made_for=None, prefer=None, limit=200):
-    """The kept audios whose text or keywords contain every word of `query`, newest first, each
-    with question_count (how many questions use it). made_for: only that kind; prefer: that kind
-    first (e.g. the Shadowing panel lists the shadowing sentences before the question audios)."""
-    rows = Audio.objects.filter(kept=True).select_related("created_by").annotate(
-        question_count=Count("questions"))
+    """The kept audios (see search_audios): what the question forms and the Shadowing panel offer."""
+    return search_audios(query, made_for, prefer, kept=True, limit=limit)
+
+
+def search_audios(query="", made_for=None, prefer=None, kept=None, limit=200):
+    """The audios whose text or keywords contain every word of `query`, newest first, each with
+    question_count (how many questions use it). kept: True / False for only the kept / not kept
+    ones, None for both; made_for: only that kind; prefer: that kind first (e.g. the Shadowing
+    panel lists the shadowing sentences before the question audios)."""
+    rows = Audio.objects.select_related("created_by").annotate(question_count=Count("questions"))
+    if kept is not None:
+        rows = rows.filter(kept=kept)
     for term in str(query or "").split():
         rows = rows.filter(Q(text__icontains=term) | Q(keywords__icontains=term))
     if made_for in MADE_FOR:
@@ -187,11 +198,46 @@ def search_kept(query="", made_for=None, prefer=None, limit=200):
     return rows.order_by(*order)[:limit]
 
 
-def existing_keys():
-    """The keys of the audio files in S3 (under AUDIO_PREFIX), to tell which rows lost their file."""
+def _library_objects():
+    """Every file in the library folder (AUDIO_PREFIX): S3's dicts, with Key, Size, LastModified."""
     pages = _s3().get_paginator("list_objects_v2").paginate(
         Bucket=settings.AWS_STORAGE_BUCKET_NAME, Prefix=AUDIO_PREFIX)
-    return {o["Key"] for page in pages for o in page.get("Contents", [])}
+    return [o for page in pages for o in page.get("Contents", [])]
+
+
+def existing_keys():
+    """The keys of the audio files in S3 (under AUDIO_PREFIX), to tell which rows lost their file."""
+    return {o["Key"] for o in _library_objects()}
+
+
+def check_library():
+    """The library folder compared with the Audio rows: (stray_files, missing_files). stray_files:
+    the files no row points to, oldest first, as {key, size, last_modified}; missing_files: the rows
+    (with question_count) whose file isn't in the folder, newest first."""
+    objects = _library_objects()
+    file_keys = {o["Key"] for o in objects}
+    row_keys = set(Audio.objects.filter(s3_key__startswith=AUDIO_PREFIX).values_list("s3_key", flat=True))
+    stray = sorted(
+        ({"key": o["Key"], "size": o["Size"], "last_modified": o["LastModified"]}
+         for o in objects if o["Key"] not in row_keys),
+        key=lambda f: f["last_modified"],
+    )
+    missing = (Audio.objects.filter(s3_key__startswith=AUDIO_PREFIX).exclude(s3_key__in=file_keys)
+               .select_related("created_by").annotate(question_count=Count("questions"))
+               .order_by("-created_at"))
+    return stray, list(missing)
+
+
+def delete_stray_file(key):
+    """Delete a library file no row points to. Returns False (and deletes nothing) if a row points
+    to it. Raises ValueError for a key outside the library folder."""
+    name = key[len(AUDIO_PREFIX):] if key.startswith(AUDIO_PREFIX) else ""
+    if not name or "/" in name:
+        raise ValueError(f"key must be a file in {AUDIO_PREFIX}.")
+    if Audio.objects.filter(s3_key=key).exists():
+        return False
+    _s3().delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+    return True
 
 
 def read_audio(audio):
@@ -234,6 +280,32 @@ def delete_unused_audios():
     return len(keys)
 
 
+# The stray-file cleanup deletes at most this many per run, so a wrong database (e.g. an empty one
+# by mistake) can't wipe the folder in one go.
+MAX_STRAY_DELETES = 200
+
+
+def delete_stray_files():
+    """Delete the library files no row points to that are more than a day old (younger ones may
+    belong to a save still in progress). Does nothing while the Audio table is empty, which looks
+    more like a wrong database than a folder of strays. Returns how many were deleted."""
+    if not Audio.objects.exists():
+        return 0
+    stray, _missing = check_library()
+    cutoff = timezone.now() - UNUSED_MAX_AGE
+    old = [f["key"] for f in stray if f["last_modified"] < cutoff]
+    keys = old[:MAX_STRAY_DELETES]
+    # Check again right before deleting: a row may have just been made.
+    taken = set(Audio.objects.filter(s3_key__in=keys).values_list("s3_key", flat=True))
+    doomed = [{"Key": k} for k in keys if k not in taken]
+    if doomed:
+        _s3().delete_objects(Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+                             Delete={"Objects": doomed, "Quiet": True})
+        left = len(old) - len(keys)
+        print(f"🧹 Deleted {len(doomed)} stray library file(s)" + (f" ({left} left for the next run)" if left else ""))
+    return len(doomed)
+
+
 # The cleanup runs every so often while the server is used (each Generate voice checks), since
 # there's no scheduler here; `python manage.py delete_unused_audios` runs it by hand or from
 # Heroku Scheduler.
@@ -248,5 +320,6 @@ def maybe_delete_unused_audios():
     _last_cleanup = time.monotonic()
     try:
         delete_unused_audios()
+        delete_stray_files()
     except Exception as e:  # never fail the request for this
         print("delete_unused_audios failed:", e)
