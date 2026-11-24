@@ -126,6 +126,11 @@ class Question(models.Model):
     explanation = models.TextField(max_length=1000, blank=True, null=True, default="")
     hint = models.CharField(max_length=500, blank=True, null=True, default="")
     question_purpose = models.CharField(max_length=50, blank=True, null=True, default="practice")  # e.g., "practice", "tutorial",
+    # Shadowing (format 9) only: the student repeats the sentence (content) after the question's
+    # audio. hide_text keeps the sentence hidden until their first try; scoring_options is how the
+    # recording is scored, in the Shadowing panel's shape (see shadowing_views._options_from).
+    hide_text = models.BooleanField(default=False)
+    scoring_options = models.JSONField(null=True, blank=True)
     def __str__(self):
         return f"{self.question_number}"
     

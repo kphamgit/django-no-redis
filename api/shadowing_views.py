@@ -23,17 +23,40 @@ from rest_framework.decorators import api_view
 
 from english.utils import get_s3_audio_url
 
-# VoiceAnalyzer_Claude's evaluate endpoint. Local testing: port 8001 (Django has 8000).
-# Production: https://voice.tienganhtuyhoa.com/api/evaluate (Cloudflare Tunnel to the Mac),
-# which requires VOICE_ANALYZER_API_KEY (the same key as VoiceAnalyzer_Claude's api_key.txt).
-EVALUATE_URL = os.environ.get("VOICE_ANALYZER_EVALUATE_URL", "http://127.0.0.1:8001/api/evaluate")
+# VoiceAnalyzer_Claude, called the same way as by the p2p-voice-chat-server (its src/voiceAnalyzer.ts):
+#   VOICE_ANALYZER_URL      its base URL. Local testing: http://127.0.0.1:8001 (Django has 8000).
+#                           Production: https://voice.tienganhtuyhoa.com (Cloudflare Tunnel to the Mac).
+#   VOICE_ANALYZER_API_KEY  sent as X-API-Key; needed through the tunnel (the same key as
+#                           VoiceAnalyzer_Claude's api_key.txt), not for a local run.
+# Two calls:
+#   POST /api/evaluate           a student's recording scored against the reference
+#   POST /api/analyze-reference  the stress and melody of the stress words measured from the
+#                                reference audio alone, for the teacher's "Analyze reference audio"
+# The older VOICE_ANALYZER_EVALUATE_URL (the full evaluate URL) is still read when
+# VOICE_ANALYZER_URL isn't set, as is VOICE_ANALYZER_ANALYZE_REFERENCE_URL.
+_LEGACY_EVALUATE_URL = os.environ.get("VOICE_ANALYZER_EVALUATE_URL", "")
+VOICE_ANALYZER_URL = (
+    os.environ.get("VOICE_ANALYZER_URL")
+    or re.sub(r"/api/evaluate/?$", "", _LEGACY_EVALUATE_URL)
+    or "http://127.0.0.1:8001"
+).rstrip("/")
+EVALUATE_URL = f"{VOICE_ANALYZER_URL}/api/evaluate"
 EVALUATE_API_KEY = os.environ.get("VOICE_ANALYZER_API_KEY", "")
-# Its reference-only analysis (same server and key): the stress and melody of the stress words
-# measured from the reference audio alone, for the teacher's "Analyze reference audio" button.
 ANALYZE_REFERENCE_URL = os.environ.get(
-    "VOICE_ANALYZER_ANALYZE_REFERENCE_URL",
-    re.sub(r"/api/evaluate/?$", "/api/analyze-reference", EVALUATE_URL),
+    "VOICE_ANALYZER_ANALYZE_REFERENCE_URL", f"{VOICE_ANALYZER_URL}/api/analyze-reference"
 )
+VOICE_ANALYZER_TIMEOUT = 120  # seconds
+
+
+def _stress_words_ipa(value):
+    """The stress words' IPA as the analyzer takes it (display only: each stress word's
+    "syllabified" in its reply is made from it): text such as "accept: əkˈsept, apology: əˈpɒlədʒi",
+    or a JSON object {"accept": "əkˈsept"} (sent as JSON text). Blank when not given. The same
+    for stress_words_viet, the Vietnamese pronunciation code with its syllables separated by
+    hyphens ({"apology": "ơ-pô-lơ-di"}), which comes back in "syllabified" too."""
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip() if value is not None else ""
 
 def _clean_sentence(text):
     """The sentence without TTS markup such as ElevenLabs' <break time="0.4s" /> (any <...>
@@ -119,6 +142,10 @@ def _options_from(data):
         # Which syllable should be stressed: "dictionary" (CMU, the reference audio as fallback,
         # e.g. at the end of a Yes/No question) or "reference" (the reference audio).
         "stress_source": "reference" if data.get("stress_source") == "reference" else "dictionary",
+        # The stress words' IPA and Vietnamese pronunciation code (optional, display only): see
+        # _stress_words_ipa.
+        "stress_words_ipa": _stress_words_ipa(data.get("stress_words_ipa")),
+        "stress_words_viet": _stress_words_ipa(data.get("stress_words_viet")),
     }
 
 
@@ -141,16 +168,18 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
                 "stress_contrast_ratio": str(options.get("stress_contrast_ratio", 0.6)),
                 "melody_min_similarity": str(options.get("melody_min_similarity", 0.35)),
                 "stress_source": options.get("stress_source", "dictionary"),
+                "stress_words_ipa": options.get("stress_words_ipa", ""),
+                "stress_words_viet": options.get("stress_words_viet", ""),
             },
             files={
                 "reference_file": (reference_name, reference_bytes, content_type),
                 "recorded_file": ("recording.wav", recorded_bytes, "audio/wav"),
             },
             headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
-            timeout=120,
+            timeout=VOICE_ANALYZER_TIMEOUT,
         )
     except requests.RequestException as e:
-        print("shadowing: can't reach VoiceAnalyzer_Claude:", e)
+        print(f"shadowing: can't reach VoiceAnalyzer_Claude at {VOICE_ANALYZER_URL}:", e)
         return None, JsonResponse({"error": "Can't reach the voice assessment server."}, status=502)
 
     try:
@@ -166,31 +195,7 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
             {"error": detail or f"The voice assessment failed ({res.status_code})."}, status=502
         )
     _add_hyphenation(evaluation)
-    _add_cmu_arpabet(evaluation)
     return evaluation, None
-
-
-def _add_cmu_arpabet(evaluation):
-    """Adds "cmu_arpabet": each word of the sentence with its CMU dictionary ARPAbet and the
-    dictionary's own stress digits (1 = primary, 2 = secondary, 0 = unstressed), e.g.
-    {"word": "basketball", "arpabet": "B AE1 S K AH0 T B AO2 L"} (arpabet None if not in the
-    dictionary). The analyzer renumbers the digits (3/1/0) and unstresses function words, so the
-    teacher's Sounds row shows these instead. Same cmudict package and first pronunciation as
-    the analyzer."""
-    from english.utils import syllabify
-
-    words = ((evaluation or {}).get("stage1_cmu") or {}).get("words") or []
-    out = []
-    for w in words:
-        word = str(w.get("word", ""))
-        try:
-            found = syllabify(word)
-            out.append({"word": word, "arpabet": " ".join(found["phonemes"]) if found["found"] else None})
-        except Exception as e:  # never let the dictionary break a result
-            print("shadowing: CMU lookup failed for", word, e)
-            out.append({"word": word, "arpabet": None})
-    if evaluation is not None:
-        evaluation["cmu_arpabet"] = out
 
 
 def _hyphenated_syllables(word, syllable_count, stressed):
@@ -211,23 +216,29 @@ def _hyphenated_syllables(word, syllable_count, stressed):
     return fitting[0]
 
 
-def _add_hyphenation(evaluation):
-    """Adds "hyphenated" (the syllables as spelled, e.g. ["bas", "ket", "ball"], or None) to
-    each stress word of the Word Syllables Stress Check, for the result tables."""
-    for w in ((evaluation or {}).get("word_stress_check") or {}).get("words") or []:
+def _hyphenate_words(words):
+    """Adds "hyphenated" (the syllables as spelled, e.g. ["bas", "ket", "ball"], or None) to each
+    stress word of an analyzer reply, for the result tables. Same rules as the p2p server's
+    addHyphenation: the word's letters only, as many parts as the syllables found."""
+    for w in words or []:
         pattern = (w.get("expected_pattern") or w.get("reference_pattern") or w.get("recorded_pattern") or "").split()
         count = w.get("syllable_count") or len(pattern)
+        word = re.sub(r"[^A-Za-z']", "", str(w.get("word", ""))).lower()
         try:
             w["hyphenated"] = (
                 _hyphenated_syllables(
-                    str(w.get("word", "")).lower(), count,
-                    w.get("expected_stressed_syllable") or w.get("reference_stressed_syllable"),
+                    word, count, w.get("expected_stressed_syllable") or w.get("reference_stressed_syllable"),
                 )
-                if count and count > 1 else None
+                if word and count and count > 1 else None
             )
         except Exception as e:  # never let the dictionary break a result
             print("shadowing: hyphenation failed for", w.get("word"), e)
             w["hyphenated"] = None
+
+
+def _add_hyphenation(evaluation):
+    """_hyphenate_words for the Word Syllables Stress Check of an evaluation."""
+    _hyphenate_words(((evaluation or {}).get("word_stress_check") or {}).get("words"))
 
 
 @api_view(["POST"])
@@ -359,6 +370,8 @@ def _save_take(user, exercise, evaluation, recorded_bytes, redis_attempt):
                     overall_score_pct=summary.get("overall_score_pct"),
                     pronunciation_score_pct=summary.get("pronunciation_score_pct"),
                     stress_match_pct=summary.get("stress_match_pct"),
+                    # None since VoiceAnalyzer stopped scoring word stress (the patterns are
+                    # still in evaluation); filled on takes scored before that.
                     word_stress_score_pct=stress_check.get("score_pct"),
                     melody_score_pct=stress_check.get("pitch_direction_score_pct"),
                     options=exercise.get("options") or {},
@@ -424,29 +437,51 @@ def shadowing_test(request):
 def shadowing_analyze_reference(request):
     """Teacher only: what VoiceAnalyzer_Claude measures in the reference audio alone (no student
     recording) for the given stress word(s): the stressed syllable, the dictionary's, and the
-    melody. Multipart: reference_file, sentence, stress_words, stress_source. Nothing is saved;
-    returns VoiceAnalyzer_Claude's reply (POST /api/analyze-reference)."""
+    melody. Multipart: reference_file, sentence, stress_words, stress_source (default
+    "dictionary"), stress_words_ipa and stress_words_viet (optional, display only). Instead of
+    reference_file, audio_id names an audio of the library (api.models.Audio, e.g. a Shadowing
+    question's audio in the teacher app's question form), read from S3. Nothing is saved; returns VoiceAnalyzer_Claude's
+    reply (POST /api/analyze-reference)."""
     if not request.user.is_staff:
         return JsonResponse({"error": "Teachers only."}, status=403)
-    reference = request.FILES.get("reference_file")
     sentence = _clean_sentence(request.data.get("sentence"))
-    if not reference or not sentence:
+    if not sentence:
         return JsonResponse({"error": "A reference and the sentence are required."}, status=400)
-    name = reference.name or "reference.mp3"
+    reference = request.FILES.get("reference_file")
+    if reference:
+        name = reference.name or "reference.mp3"
+        reference_bytes = reference.read()
+    elif request.data.get("audio_id"):
+        from .models import Audio
+        try:
+            audio = Audio.objects.get(pk=int(request.data.get("audio_id")))
+        except (Audio.DoesNotExist, TypeError, ValueError):
+            return JsonResponse({"error": "That audio doesn't exist."}, status=404)
+        try:
+            obj = _s3().get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=audio.s3_key)
+            reference_bytes = obj["Body"].read()
+        except Exception as e:
+            print(f"shadowing: can't read audio {audio.pk} ({audio.s3_key}) from S3:", e)
+            return JsonResponse({"error": "Can't read that audio's file from S3."}, status=502)
+        name = audio.s3_key.rsplit("/", 1)[-1] or "reference.mp3"
+    else:
+        return JsonResponse({"error": "A reference and the sentence are required."}, status=400)
     try:
         res = requests.post(
             ANALYZE_REFERENCE_URL,
             data={
                 "spoken_text": sentence,
                 "stress_words": (request.data.get("stress_words") or "").strip(),
-                "stress_source": "dictionary" if request.data.get("stress_source") == "dictionary" else "reference",
+                "stress_source": "reference" if request.data.get("stress_source") == "reference" else "dictionary",
+                "stress_words_ipa": _stress_words_ipa(request.data.get("stress_words_ipa")),
+                "stress_words_viet": _stress_words_ipa(request.data.get("stress_words_viet")),
             },
-            files={"reference_file": (name, reference.read(), "audio/wav" if name.endswith(".wav") else "audio/mpeg")},
+            files={"reference_file": (name, reference_bytes, "audio/wav" if name.endswith(".wav") else "audio/mpeg")},
             headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
-            timeout=120,
+            timeout=VOICE_ANALYZER_TIMEOUT,
         )
     except requests.RequestException as e:
-        print("shadowing: can't reach VoiceAnalyzer_Claude:", e)
+        print(f"shadowing: can't reach VoiceAnalyzer_Claude at {VOICE_ANALYZER_URL}:", e)
         return JsonResponse({"error": "Can't reach the voice assessment server."}, status=502)
     try:
         analysis = res.json()
@@ -461,19 +496,7 @@ def shadowing_analyze_reference(request):
             {"error": detail or f"Analyzing the reference failed ({res.status_code})."}, status=502
         )
     # The syllables as spelled (["a", "pol", "o", "gy"], or None), as in the assessment results.
-    for w in analysis.get("words") or []:
-        count = w.get("syllable_count") or 0
-        try:
-            w["hyphenated"] = (
-                _hyphenated_syllables(
-                    re.sub(r"[^A-Za-z']", "", str(w.get("word", ""))).lower(), count,
-                    w.get("expected_stressed_syllable") or w.get("reference_stressed_syllable"),
-                )
-                if count > 1 else None
-            )
-        except Exception as e:  # never let the dictionary break a result
-            print("shadowing: hyphenation failed for", w.get("word"), e)
-            w["hyphenated"] = None
+    _hyphenate_words(analysis.get("words"))
     return JsonResponse(analysis)
 
 

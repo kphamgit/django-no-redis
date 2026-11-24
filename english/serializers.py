@@ -33,7 +33,8 @@ class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
         fields = ["id", "quiz_id", "video_segment_id", "question_number", "question_purpose", "content", "content_language", "format", "answer_key", "instructions", 
-        "prompt", "audio", "audio_id", "score", "button_cloze_options", "timeout", "hint", "explanation"]
+        "prompt", "audio", "audio_id", "score", "button_cloze_options", "timeout", "hint", "explanation",
+        "hide_text", "scoring_options"]
         #fields = '__all__'
 
 class UnitSerializer(serializers.ModelSerializer):
