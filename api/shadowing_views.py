@@ -58,6 +58,29 @@ def _stress_words_ipa(value):
         return json.dumps(value, ensure_ascii=False)
     return str(value).strip() if value is not None else ""
 
+def _helper_words(value):
+    """The teacher's Helper Words, sent as JSON text {"have": "vờ"} (or a dict): {word in lower
+    case: helper word}, without blanks. {} when missing or not valid JSON."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.strip() else {}
+        except ValueError:
+            value = {}
+    if not isinstance(value, dict):
+        return {}
+    return {str(k).strip().lower(): str(v).strip() for k, v in value.items() if str(k).strip() and str(v).strip()}
+
+
+def _word_list(text):
+    """The words of a teacher's word field ("apology, photography" or "is a"), lower case, each
+    once, parsed as VoiceAnalyzer_Claude does (letters and apostrophes)."""
+    words = []
+    for w in re.findall(r"[A-Za-z']+", text or ""):
+        if w.lower() not in words:
+            words.append(w.lower())
+    return words
+
+
 def _clean_sentence(text):
     """The sentence without TTS markup such as ElevenLabs' <break time="0.4s" /> (any <...>
     tag): students see, and are scored on, only the words."""
@@ -129,6 +152,9 @@ def _options_from(data):
     """The teacher's scoring options from a request's form fields."""
     return {
         "targeted_words": (data.get("targeted_words") or "").strip(),
+        # Display only: {targeted word: helper word}, shown to the students under that word's link
+        # (e.g. {"have": "vờ"}).
+        "helper_words": _helper_words(data.get("helper_words")),
         "strict_connected_speech": str(data.get("strict_connected_speech", "true")).lower() == "true",
         "fall_match_ratio": _ratio(data.get("fall_match_ratio"), 0.75),
         "rise_match_ratio": _ratio(data.get("rise_match_ratio"), 0.5),
@@ -281,7 +307,16 @@ def shadowing_send(request):
     settings.R_CONN.publish("notifications", json.dumps({
         "message_type": "shadowing_prompt",
         "user_name": request.user.username,
-        "content": {"shadowing_id": shadowing_id, "sentence": sentence, "audio_url": audio_url},
+        "content": {
+            "shadowing_id": shadowing_id,
+            "sentence": sentence,
+            "audio_url": audio_url,
+            # So the students know before recording which words are checked: the stress words
+            # (melody) and the targeted words, each of which should link to the next word.
+            "stress_words": _word_list(exercise["options"]["stress_words"]),
+            "connected_words": _word_list(exercise["options"]["targeted_words"]),
+            "helper_words": exercise["options"]["helper_words"],
+        },
     }))
     return JsonResponse({"shadowing_id": shadowing_id, "audio_url": audio_url})
 
