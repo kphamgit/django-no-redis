@@ -398,6 +398,79 @@ def _save_take(user, exercise, evaluation, recorded_bytes, redis_attempt):
     return {"attempt": attempt, "recording_s3_key": s3_key, "id": row.pk}
 
 
+# A Shadowing question (format 9) in a quiz: the scored take is kept in Redis for this long under
+# a one-time token, which the quiz's submit (check_answer, format 9) turns into points.
+QUESTION_TAKE_TTL_SECONDS = 60 * 60
+# Points by melody %: under 50% = 0, 50% to under 70% = 5, 70% and up = 10 (the most).
+# Any points (50% or more) count as a correct answer.
+QUESTION_POINT_BANDS = [(70, 10), (50, 5)]  # (lowest %, points), highest first
+QUESTION_MAX_POINTS = 10
+
+
+def _question_points(pct):
+    return next((points for lowest, points in QUESTION_POINT_BANDS if pct >= lowest), 0)
+
+
+def question_take_key(token):
+    return f"shadowing_question_take:{token}"
+
+
+@api_view(["POST"])
+def shadowing_assess_question(request):
+    """A student's take of a Shadowing question (format 9) in a quiz. Multipart: question_id,
+    recorded_file (16 kHz mono WAV). Scores the recording against the question's audio with
+    VoiceAnalyzer_Claude and the question's scoring_options, and keeps the points for the quiz's
+    submit: points by the melody % (the stress words' melody; the overall % when the melody wasn't
+    measured), see QUESTION_POINT_BANDS; correct when it earns any points. The question's own
+    score field isn't used (the teacher app doesn't set it), as for the other formats.
+    Returns VoiceAnalyzer_Claude's reply plus "question_take": {token (send it as the answer),
+    pct, basis ("melody" / "overall"), points, max_points, passed}."""
+    from .models import Question
+
+    question = Question.objects.select_related("audio").filter(
+        id=request.data.get("question_id"), format=9
+    ).first()
+    if question is None:
+        return JsonResponse({"error": "This Shadowing question no longer exists."}, status=404)
+    if question.audio is None:
+        return JsonResponse({"error": "This question has no audio to repeat."}, status=400)
+    recorded = request.FILES.get("recorded_file")
+    if not recorded:
+        return JsonResponse({"error": "No recording was sent."}, status=400)
+    sentence = _clean_sentence(question.content)
+    try:
+        reference_bytes = _s3().get_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=question.audio.s3_key
+        )["Body"].read()
+    except Exception as e:
+        print("shadowing_assess_question: can't read", question.audio.s3_key, e)
+        return JsonResponse({"error": "The question's audio couldn't be read."}, status=502)
+    evaluation, error = _evaluate(
+        sentence, _options_from(question.scoring_options or {}), reference_bytes, "reference.mp3", recorded.read()
+    )
+    if error:
+        return error
+
+    melody = (evaluation.get("word_stress_check") or {}).get("pitch_direction_score_pct")
+    overall = (evaluation.get("summary") or {}).get("overall_score_pct")
+    pct, basis = (melody, "melody") if melody is not None else (overall, "overall")
+    pct = float(pct or 0)
+    take = {
+        "token": uuid.uuid4().hex,
+        "pct": round(pct, 1),
+        "basis": basis,
+        "points": _question_points(pct),
+        "max_points": QUESTION_MAX_POINTS,
+        "passed": _question_points(pct) > 0,
+    }
+    settings.R_CONN.set(
+        question_take_key(take["token"]),
+        json.dumps({**take, "question_id": question.id, "user_name": request.user.username}),
+        ex=QUESTION_TAKE_TTL_SECONDS,
+    )
+    return JsonResponse({**evaluation, "question_take": take})
+
+
 @api_view(["GET"])
 def shadowing_results(request):
     """Teacher only. The latest exercise (or ?shadowing_id=...) and each student's latest result:

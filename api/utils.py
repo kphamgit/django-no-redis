@@ -247,6 +247,28 @@ def check_writing(user_answer, answer_key, options):
     error = _normalize_writing(user_answer) not in accepted
     return {"error_flag": error, "score": 0 if error else 5}
 
+def check_shadowing_question(token):
+    """A Shadowing question (format 9): the take scored by /api/shadowing/assess_question/, found
+    by its one-time token (used up here, so a take counts once). No (or an expired) take = 0."""
+    import json
+
+    from django.conf import settings
+
+    from .shadowing_views import question_take_key
+
+    key = question_take_key(str(token or "").strip())
+    raw = settings.R_CONN.get(key) if token else None
+    if not raw:
+        return {"error_flag": True, "score": 0, "shadowing_results": None}
+    settings.R_CONN.delete(key)
+    take = json.loads(raw)
+    return {
+        "error_flag": not take["passed"],
+        "score": take["points"],
+        "shadowing_results": {k: take[k] for k in ("pct", "basis", "points", "max_points", "passed")},
+    }
+
+
 def check_answer(format, user_answer, answer_key):
     # Placeholder function to check if the user's answer is correct
     #print("Checking answer... format:", format, " user_answer:", user_answer, " answer_key:", answer_key)
@@ -296,6 +318,9 @@ def check_answer(format, user_answer, answer_key):
         #print("word_select results:", results)
         #return results
         
+    elif format == 9:  #shadowing: user_answer is the token from /api/shadowing/assess_question/
+        results = check_shadowing_question(user_answer)
+
     elif format == 10:  #dropdowns
         print("Checking drop_down answer... user_answer:", user_answer, " answer_key:", answer_key)
         results = check_dropdown(user_answer, answer_key, options=[])

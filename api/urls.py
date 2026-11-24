@@ -56,6 +56,7 @@ urlpatterns = [
     # Shadowing: teacher sends a reference, students' recordings are scored by VoiceAnalyzer_Claude
     path("shadowing/send/", shadowing_views.shadowing_send, name="shadowing-send"),
     path("shadowing/assess/", shadowing_views.shadowing_assess, name="shadowing-assess"),
+    path("shadowing/assess_question/", shadowing_views.shadowing_assess_question, name="shadowing-assess-question"),
     path("shadowing/test/", shadowing_views.shadowing_test, name="shadowing-test"),
     path("shadowing/analyze_reference/", shadowing_views.shadowing_analyze_reference, name="shadowing-analyze-reference"),
     path("shadowing/save_test/", shadowing_views.shadowing_save_test, name="shadowing-save-test"),
