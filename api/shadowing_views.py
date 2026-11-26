@@ -71,6 +71,155 @@ def _helper_words(value):
     return {str(k).strip().lower(): str(v).strip() for k, v in value.items() if str(k).strip() and str(v).strip()}
 
 
+# spaCy's part of speech -> the label english/cmu_to_viet.py understands. Only noun and verb
+# change a code (e.g. record: noun rớ-kồ(r)đ, verb rờ-kố(r)đ); AUX is a helping verb (has, is,
+# will). Every other tag is made without a part of speech.
+_SPACY_POS = {"VERB": "verb", "AUX": "verb", "NOUN": "noun"}
+
+
+def _word_tags(sentence, matches):
+    """spaCy's part-of-speech tag (e.g. "VERB") of each regex word match of the sentence: the tag
+    of the spaCy token the word starts in (so "wasn't", split by spaCy into was + n't, gets
+    was's AUX). None for a word spaCy didn't tag, or for every word if spaCy fails."""
+    try:
+        from api.nlp import get_nlp
+        doc = get_nlp()(sentence)
+    except Exception as e:  # display only: without spaCy, every word without a part of speech
+        print("shadowing: spaCy failed, codes made without a part of speech:", e)
+        return [None] * len(matches)
+    tags = []
+    for m in matches:
+        tag = next((t.pos_ for t in doc if t.idx <= m.start() < t.idx + len(t)), None)
+        tags.append(tag)
+    return tags
+
+
+# spaCy's tag -> how the dictionary labels that part of speech: English names (noun, verb, ...)
+# and the Vietnamese dictionary's (danh từ, động từ, ...; matched by their start, so "danh từ, số
+# nhiều ..." is a noun). Used to pick, among a word's dictionary entries, the one for its use in
+# the sentence.
+_DICT_LABELS = {
+    "VERB": ("verb", "động từ"),
+    "AUX": ("verb", "động từ"),
+    "NOUN": ("noun", "danh từ"),
+    "PROPN": ("noun", "danh từ"),
+    "ADJ": ("adjective", "tính từ"),
+    "ADV": ("adverb", "phó từ"),
+    "ADP": ("preposition", "giới từ"),
+    "CCONJ": ("conjunction", "liên từ"),
+    "SCONJ": ("conjunction", "liên từ"),
+    "PRON": ("pronoun", "đại từ"),
+    "DET": ("article", "determiner", "mạo từ", "tính từ chỉ định", "đại từ chỉ định", "tính từ sở hữu"),
+}
+
+
+def _first_code(saved):
+    """The first alternative of a saved viet_pron_code (a JSON array such as '["ờ"]', or plain
+    text), or None when there's none."""
+    if not saved:
+        return None
+    try:
+        value = json.loads(saved)
+    except ValueError:
+        value = saved
+    if isinstance(value, list):
+        value = next((v for v in value if isinstance(v, str) and v.strip()), None)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _dictionary_codes(words):
+    """The saved viet_pron_code (American/flapped form) of each of WORDS (lower case) found in the
+    dictionary: {word: [(part-of-speech label in lower case, code), ...]}, the Vietnamese
+    dictionary's entries first, then Longman's. Entries without a code are left out. One query."""
+    from api.models import PartOfSpeech
+
+    if not words:
+        return {}
+    rows = (
+        PartOfSpeech.objects
+        .filter(dict_entry__head_word__iregex=r"^(%s)$" % "|".join(re.escape(w) for w in words))
+        .exclude(viet_pron_code__isnull=True).exclude(viet_pron_code="")
+        .values_list("dict_entry__head_word", "dict_entry__source", "name", "viet_pron_code", "id")
+    )
+    found = {}
+    for head, source, name, saved, _id in sorted(rows, key=lambda r: (r[1] != VIET_DICT_SOURCE, r[4])):
+        code = _first_code(saved)
+        if code:
+            found.setdefault(head.lower(), []).append(((name or "").strip().lower(), code))
+    return found
+
+
+def _pick_entry(entries, tag):
+    """The code of the dictionary entry for spaCy's TAG among ENTRIES [(label, code), ...]: the
+    first whose label is that part of speech, else the word's first entry (most words have the
+    same code for every part of speech)."""
+    labels = _DICT_LABELS.get(tag, ())
+    for label, code in entries:
+        if any(label == l or label.startswith(l) for l in labels):
+            return code
+    return entries[0][1]
+
+
+VIET_DICT_SOURCE = "ho-ngoc-duc-stardict"
+
+
+def _sentence_viet_words(sentence):
+    """The Vietnamese pronunciation code of every word of the sentence, ONE PER WORD POSITION, in
+    order: [{"word": "a", "pos": "DET", "code": "ờ", "from": "dictionary"}, ...]. Words are
+    the sentence's runs of letters and apostrophes ([A-Za-z']+), as TargetedSentence finds them,
+    so the n-th entry is the n-th word on the students' screen.
+
+    spaCy gives each word's part of speech from the context. Then:
+      - a word IN THE DICTIONARY shows its saved viet_pron_code (the first alternative of the
+        American/flapped form) exactly as stored, so hand edits show up: the entry for that
+        part of speech (record as a verb -> the verb entry), else the word's first entry.
+        "from": "dictionary".
+      - any other word gets a code made on the fly: english/cmu_to_viet.py's SIMPLIFIED version
+        for that part of speech (only noun and verb change a code). "from": "generated".
+    "code" is None for a word in neither (display only: a failure never stops sending)."""
+    from english.cmu_to_viet import respell_in_vietnamese
+
+    sentence = (sentence or "")[:1000]
+    matches = list(re.finditer(r"[A-Za-z']+", sentence))
+    tags = _word_tags(sentence, matches)
+    words = list(dict.fromkeys(m.group().lower().strip("'") for m in matches))
+    try:
+        saved = _dictionary_codes([w for w in words if w])
+    except Exception as e:  # display only: without the dictionary, every code made on the fly
+        print("shadowing: dictionary lookup for Vietnamese codes failed:", e)
+        saved = {}
+
+    made = {}  # (word, part of speech) -> generated code, so a repeated word is made once
+    out = []
+    for m, tag in zip(matches, tags):
+        w = m.group().lower().strip("'")
+        if w in saved:
+            out.append({"word": m.group(), "pos": tag, "code": _pick_entry(saved[w], tag), "from": "dictionary"})
+            continue
+        pos = _SPACY_POS.get(tag)
+        if (w, pos) not in made:
+            try:
+                alternatives = [c for c in respell_in_vietnamese(w, part_of_speech=pos, detailed=False) if c] if w else []
+            except Exception as e:  # display only: never fail sending over it
+                print(f"shadowing: Vietnamese code for {w!r} failed:", e)
+                alternatives = []
+            made[(w, pos)] = alternatives[0] if alternatives else None
+        out.append({"word": m.group(), "pos": tag, "code": made[(w, pos)], "from": "generated"})
+    return out
+
+
+def _sentence_viet(words):
+    """The older form of the codes, one per spelling: {word in lower case: code} from
+    _sentence_viet_words' list (a word's first code when it appears twice). Still sent for a
+    student page that doesn't read sentence_viet_words yet."""
+    codes = {}
+    for item in words:
+        key = item["word"].lower().strip("'")
+        if key and item["code"] and key not in codes:
+            codes[key] = item["code"]
+    return codes
+
+
 def _word_list(text):
     """The words of a teacher's word field ("apology, photography" or "is a"), lower case, each
     once, parsed as VoiceAnalyzer_Claude does (letters and apostrophes)."""
@@ -159,7 +308,8 @@ def _options_from(data):
         "fall_match_ratio": _ratio(data.get("fall_match_ratio"), 0.75),
         "rise_match_ratio": _ratio(data.get("rise_match_ratio"), 0.5),
         "link_tolerance": _tolerance(data.get("link_tolerance"), 1.0),
-        # Word Syllables Stress Check: the multi-syllable words to check (required by send and test)
+        # Word Syllables Stress Check: the multi-syllable words to check (optional: blank = no stress
+        # check, e.g. a sentence that only tests linking)
         # and how much of the reference's stressed/unstressed contrast the student must reach.
         "stress_words": (data.get("stress_words") or "").strip(),
         "stress_contrast_ratio": _ratio(data.get("stress_contrast_ratio"), 0.6),
@@ -281,8 +431,6 @@ def shadowing_send(request):
     sentence = _clean_sentence(request.data.get("sentence"))
     if not reference or not sentence:
         return JsonResponse({"error": "A reference recording and its sentence are required."}, status=400)
-    if not (request.data.get("stress_words") or "").strip():
-        return JsonResponse({"error": "Type at least one stress word."}, status=400)
 
     shadowing_id = uuid.uuid4().hex[:12]
     s3_key = f"{TEMP_SENTENCES_PREFIX}{shadowing_id}.mp3"
@@ -304,6 +452,7 @@ def shadowing_send(request):
     settings.R_CONN.set(LATEST_KEY, shadowing_id, ex=EXERCISE_TTL_SECONDS)
 
     audio_url = get_s3_audio_url(s3_key)
+    viet_words = _sentence_viet_words(sentence)
     settings.R_CONN.publish("notifications", json.dumps({
         "message_type": "shadowing_prompt",
         "user_name": request.user.username,
@@ -316,6 +465,10 @@ def shadowing_send(request):
             "stress_words": _word_list(exercise["options"]["stress_words"]),
             "connected_words": _word_list(exercise["options"]["targeted_words"]),
             "helper_words": exercise["options"]["helper_words"],
+            # The Vietnamese pronunciation code of every word of the sentence, one per word
+            # position (the part of speech from spaCy), and the older one-per-spelling form.
+            "sentence_viet_words": viet_words,
+            "sentence_viet": _sentence_viet(viet_words),
         },
     }))
     return JsonResponse({"shadowing_id": shadowing_id, "audio_url": audio_url})
@@ -533,8 +686,6 @@ def shadowing_test(request):
     sentence = _clean_sentence(request.data.get("sentence"))
     if not reference or not recorded or not sentence:
         return JsonResponse({"error": "A reference, a recording and the sentence are required."}, status=400)
-    if not (request.data.get("stress_words") or "").strip():
-        return JsonResponse({"error": "Type at least one stress word."}, status=400)
     evaluation, error = _evaluate(
         sentence, _options_from(request.data), reference.read(), reference.name or "reference.mp3", recorded.read()
     )
