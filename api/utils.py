@@ -318,7 +318,7 @@ def check_answer(format, user_answer, answer_key):
         #print("word_select results:", results)
         #return results
         
-    elif format == 9:  #shadowing: user_answer is the token from /api/shadowing/assess_question/
+    elif format in (9, 14):  #shadowing / speaking: user_answer is the token from /api/shadowing/assess_question/
         results = check_shadowing_question(user_answer)
 
     elif format == 10:  #dropdowns

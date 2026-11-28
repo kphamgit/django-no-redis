@@ -1331,12 +1331,15 @@ def get_or_create_quiz_attempt(request, pk):
             completion_status="uncompleted",
             defaults={'score': 0, 'user_name': request.data['user_name'], 'quiz_id' : pk, "completion_status":"uncompleted"}
         )
-        if created:
+        # An unfinished attempt with no question attempts (e.g. they were deleted along with their
+        # question, since QuestionAttempt cascades) starts over at the first question, like a new one.
+        if created or not quiz_attempt.question_attempts.exists():
             serializer = QuizAttemptSerializer(quiz_attempt)
     
             #loaded_questions = Question.objects.filter(quiz_id=pk).order_by('question_number')[:number_of_questions_to_preload]
             # retrieve the first question of the quiz, using question_number=1, to ensure the question attempt created is always for the first question of the quiz, 
-            first_question = Question.objects.filter(quiz_id=pk, question_number=1).first()
+            # (the lowest number, in case the quiz no longer has a question 1)
+            first_question = Question.objects.filter(quiz_id=pk).order_by('question_number').first()
             if first_question:
                 # only create question attempts for the first question in the quiz, and create the next question attempt when the user clicks "Next" button in the frontend after they answer the first question, to avoid creating too many question attempts at once and overwhelming the frontend with too much data, which can cause performance issues in React Native.
                 # create question attempt for the first question of loaded questions
@@ -1347,7 +1350,7 @@ def get_or_create_quiz_attempt(request, pk):
                     completed=False,
                 )
                 return Response({
-                    "created": True,
+                    "created": created,
                     "quiz_attempt": serializer.data,
                     "question": QuestionSerializer(first_question).data,
                     "question_attempt_id": question_attempt.id,
@@ -1356,7 +1359,7 @@ def get_or_create_quiz_attempt(request, pk):
                 # no questions in the quiz
                 return Response({
                     "quiz_attempt": serializer.data,
-                    "created": True,
+                    "created": created,
                     "question": None,
                     "question_attempt_id": None,
                 })                
@@ -1386,14 +1389,16 @@ def get_or_create_quiz_attempt(request, pk):
                         "quiz_attempt": serializer.data,
                         "created": False,
                         "question": QuestionSerializer(next_question).data,
+                        "question_attempt_id": question_attempt.id,  # what the student app reads
                         "question_attempt": QuestionAttemptSerializer(question_attempt).data,
                     })
-            else:       
-                # should not be here, send a error message back
-                print("Error: No question attempts found for this quiz attempt, which should not happen. QuizAttempt id:", quiz_attempt.id)
+                # every question has been answered: nothing left to show
                 return Response({
-                    "error": "No question attempts found for this quiz attempt, which should not happen."
-                }, status=500)
+                    "quiz_attempt": serializer.data,
+                    "created": False,
+                    "question": None,
+                    "question_attempt_id": None,
+                })
                   
 
 from django.core import serializers

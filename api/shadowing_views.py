@@ -307,7 +307,7 @@ def _options_from(data):
         "strict_connected_speech": str(data.get("strict_connected_speech", "true")).lower() == "true",
         "fall_match_ratio": _ratio(data.get("fall_match_ratio"), 0.75),
         "rise_match_ratio": _ratio(data.get("rise_match_ratio"), 0.5),
-        "link_tolerance": _tolerance(data.get("link_tolerance"), 1.0),
+        "link_tolerance": _tolerance(data.get("link_tolerance"), 1.25),
         # Word Syllables Stress Check: the multi-syllable words to check (optional: blank = no stress
         # check, e.g. a sentence that only tests linking)
         # and how much of the reference's stressed/unstressed contrast the student must reach.
@@ -326,7 +326,8 @@ def _options_from(data):
 
 
 def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes):
-    """Scores a recording against the reference with VoiceAnalyzer_Claude.
+    """Scores a recording against the reference with VoiceAnalyzer_Claude. reference_bytes None:
+    no reference (a connected-speech-only exercise; the analyzer accepts that).
     Returns (evaluation, None), or (None, a JsonResponse with the error)."""
     content_type = "audio/wav" if reference_name.endswith(".wav") else "audio/mpeg"
     try:
@@ -339,7 +340,7 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
                 "fall_match_ratio": str(options["fall_match_ratio"]),
                 "rise_match_ratio": str(options["rise_match_ratio"]),
                 # Exercises sent before this option existed don't have it.
-                "link_tolerance": str(options.get("link_tolerance", 1.0)),
+                "link_tolerance": str(options.get("link_tolerance", 1.25)),
                 "stress_words": options.get("stress_words", ""),
                 "stress_contrast_ratio": str(options.get("stress_contrast_ratio", 0.6)),
                 "melody_min_similarity": str(options.get("melody_min_similarity", 0.35)),
@@ -348,7 +349,8 @@ def _evaluate(sentence, options, reference_bytes, reference_name, recorded_bytes
                 "stress_words_viet": options.get("stress_words_viet", ""),
             },
             files={
-                "reference_file": (reference_name, reference_bytes, content_type),
+                **({"reference_file": (reference_name, reference_bytes, content_type)}
+                   if reference_bytes is not None else {}),
                 "recorded_file": ("recording.wav", recorded_bytes, "audio/wav"),
             },
             headers={"X-API-Key": EVALUATE_API_KEY} if EVALUATE_API_KEY else {},
@@ -417,6 +419,19 @@ def _add_hyphenation(evaluation):
     _hyphenate_words(((evaluation or {}).get("word_stress_check") or {}).get("words"))
 
 
+def _reference_optional(data):
+    """True when an exercise or test checks connected speech only (targeted words, no stress
+    words), so it may be sent or scored without a reference recording: the linking check
+    doesn't use the reference voice."""
+    return bool(_word_list(data.get("targeted_words"))) and not _word_list(data.get("stress_words"))
+
+
+NO_REFERENCE_ERROR = (
+    "A reference recording is required (it can be left out only when the exercise checks "
+    "connected speech only: targeted words and no stress words)."
+)
+
+
 @api_view(["POST"])
 def shadowing_send(request):
     """Teacher only. Multipart: reference_file (the TTS MP3), sentence, voice (label, for display),
@@ -424,20 +439,27 @@ def shadowing_send(request):
     targeted_words, strict_connected_speech ("true"/"false"), fall_match_ratio, rise_match_ratio,
     link_tolerance, stress_words, stress_contrast_ratio, melody_min_similarity, stress_source.
     Saves the reference to S3 and the exercise to Redis, then announces it to the students.
+    reference_file may be left out for a connected-speech-only exercise (targeted words, no
+    stress words): the linking check doesn't use the reference voice. The exercise then has
+    s3_key "" and the students get audio_url null (nothing to listen to).
     Returns {shadowing_id, audio_url}."""
     if not request.user.is_staff:
         return JsonResponse({"error": "Teachers only."}, status=403)
     reference = request.FILES.get("reference_file")
     sentence = _clean_sentence(request.data.get("sentence"))
-    if not reference or not sentence:
-        return JsonResponse({"error": "A reference recording and its sentence are required."}, status=400)
+    if not sentence:
+        return JsonResponse({"error": "The sentence is required."}, status=400)
+    if not reference and not _reference_optional(request.data):
+        return JsonResponse({"error": NO_REFERENCE_ERROR}, status=400)
 
     shadowing_id = uuid.uuid4().hex[:12]
-    s3_key = f"{TEMP_SENTENCES_PREFIX}{shadowing_id}.mp3"
-    reference.seek(0)
-    _s3().put_object(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key, Body=reference, ContentType="audio/mpeg"
-    )
+    s3_key = ""
+    if reference:
+        s3_key = f"{TEMP_SENTENCES_PREFIX}{shadowing_id}.mp3"
+        reference.seek(0)
+        _s3().put_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=s3_key, Body=reference, ContentType="audio/mpeg"
+        )
 
     exercise = {
         "shadowing_id": shadowing_id,
@@ -451,7 +473,7 @@ def shadowing_send(request):
     settings.R_CONN.set(_exercise_key(shadowing_id), json.dumps(exercise), ex=EXERCISE_TTL_SECONDS)
     settings.R_CONN.set(LATEST_KEY, shadowing_id, ex=EXERCISE_TTL_SECONDS)
 
-    audio_url = get_s3_audio_url(s3_key)
+    audio_url = get_s3_audio_url(s3_key) if s3_key else None
     viet_words = _sentence_viet_words(sentence)
     settings.R_CONN.publish("notifications", json.dumps({
         "message_type": "shadowing_prompt",
@@ -487,9 +509,11 @@ def shadowing_assess(request):
     if not recorded:
         return JsonResponse({"error": "No recording was sent."}, status=400)
 
-    reference_bytes = _s3().get_object(
-        Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=exercise["s3_key"]
-    )["Body"].read()
+    # No reference for a connected-speech-only exercise (s3_key "").
+    reference_bytes = (
+        _s3().get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=exercise["s3_key"])["Body"].read()
+        if exercise.get("s3_key") else None
+    )
     recorded_bytes = recorded.read()
     evaluation, error = _evaluate(
         exercise["sentence"], exercise["options"], reference_bytes, "reference.mp3", recorded_bytes
@@ -605,7 +629,9 @@ def question_take_key(token):
 
 @api_view(["POST"])
 def shadowing_assess_question(request):
-    """A student's take of a Shadowing question (format 9) in a quiz. Multipart: question_id,
+    """A student's take of a Shadowing question (format 9) or a Speaking question (format 14: the
+    same, but the student reads the sentence and never hears the audio; its audio, if any, is only
+    the reference for the stress words) in a quiz. Multipart: question_id,
     recorded_file (16 kHz mono WAV). Scores the recording against the question's audio with
     VoiceAnalyzer_Claude and the question's scoring_options, and keeps the points for the quiz's
     submit: points by the melody % (the stress words' melody; the overall % when the melody wasn't
@@ -616,25 +642,33 @@ def shadowing_assess_question(request):
     from .models import Question
 
     question = Question.objects.select_related("audio").filter(
-        id=request.data.get("question_id"), format=9
+        id=request.data.get("question_id"), format__in=[9, 14]
     ).first()
     if question is None:
-        return JsonResponse({"error": "This Shadowing question no longer exists."}, status=404)
+        return JsonResponse({"error": "This question no longer exists."}, status=404)
+    options = question.scoring_options or {}
     if question.audio is None:
-        return JsonResponse({"error": "This question has no audio to repeat."}, status=400)
+        # A Speaking question may have no audio when there are no stress words to compare: the
+        # analyzer then scores without a reference.
+        if question.format == 9:
+            return JsonResponse({"error": "This question has no audio to repeat."}, status=400)
+        if _word_list(options.get("stress_words")):
+            return JsonResponse({"error": "This question checks word stress but has no reference audio."}, status=400)
     recorded = request.FILES.get("recorded_file")
     if not recorded:
         return JsonResponse({"error": "No recording was sent."}, status=400)
     sentence = _clean_sentence(question.content)
-    try:
-        reference_bytes = _s3().get_object(
-            Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=question.audio.s3_key
-        )["Body"].read()
-    except Exception as e:
-        print("shadowing_assess_question: can't read", question.audio.s3_key, e)
-        return JsonResponse({"error": "The question's audio couldn't be read."}, status=502)
+    reference_bytes = None
+    if question.audio is not None:
+        try:
+            reference_bytes = _s3().get_object(
+                Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=question.audio.s3_key
+            )["Body"].read()
+        except Exception as e:
+            print("shadowing_assess_question: can't read", question.audio.s3_key, e)
+            return JsonResponse({"error": "The question's audio couldn't be read."}, status=502)
     evaluation, error = _evaluate(
-        sentence, _options_from(question.scoring_options or {}), reference_bytes, "reference.mp3", recorded.read()
+        sentence, _options_from(options), reference_bytes, "reference.mp3", recorded.read()
     )
     if error:
         return error
@@ -670,7 +704,7 @@ def shadowing_results(request):
         return JsonResponse({"exercise": None, "results": []})
     raw = settings.R_CONN.hgetall(_results_key(exercise["shadowing_id"]))
     results = sorted((json.loads(v) for v in raw.values()), key=lambda r: r["user_name"])
-    exercise["audio_url"] = get_s3_audio_url(exercise["s3_key"])
+    exercise["audio_url"] = get_s3_audio_url(exercise["s3_key"]) if exercise.get("s3_key") else None
     return JsonResponse({"exercise": exercise, "results": results})
 
 
@@ -678,16 +712,21 @@ def shadowing_results(request):
 def shadowing_test(request):
     """Teacher only: try the scoring yourself before (or without) sending to the students.
     Multipart: reference_file (the TTS MP3), recorded_file (16 kHz mono WAV), sentence, and the
-    scoring options as in shadowing_send. Nothing is saved or relayed; returns the evaluation."""
+    scoring options as in shadowing_send. reference_file may be left out for a connected-speech-only
+    test (see _reference_optional). Nothing is saved or relayed; returns the evaluation."""
     if not request.user.is_staff:
         return JsonResponse({"error": "Teachers only."}, status=403)
     reference = request.FILES.get("reference_file")
     recorded = request.FILES.get("recorded_file")
     sentence = _clean_sentence(request.data.get("sentence"))
-    if not reference or not recorded or not sentence:
-        return JsonResponse({"error": "A reference, a recording and the sentence are required."}, status=400)
+    if not recorded or not sentence:
+        return JsonResponse({"error": "A recording and the sentence are required."}, status=400)
+    if not reference and not _reference_optional(request.data):
+        return JsonResponse({"error": NO_REFERENCE_ERROR}, status=400)
     evaluation, error = _evaluate(
-        sentence, _options_from(request.data), reference.read(), reference.name or "reference.mp3", recorded.read()
+        sentence, _options_from(request.data),
+        reference.read() if reference else None, (reference.name if reference else None) or "reference.mp3",
+        recorded.read(),
     )
     return error or JsonResponse(evaluation)
 
@@ -773,14 +812,18 @@ def shadowing_save_test(request):
     so nothing is ever overwritten:
         audios/shadowing_tests/<YYYY-MM-DD_HHMMSS>_<code>/
             reference.mp3, recording.wav, test.json (sentence, voice, options, result)
+    A connected-speech-only test may have no reference (see _reference_optional): then there's no
+    reference.mp3 and test.json's files.reference is null.
     Returns {folder}."""
     if not request.user.is_staff:
         return JsonResponse({"error": "Teachers only."}, status=403)
     reference = request.FILES.get("reference_file")
     recorded = request.FILES.get("recorded_file")
     sentence = _clean_sentence(request.data.get("sentence"))
-    if not reference or not recorded or not sentence:
-        return JsonResponse({"error": "A reference, a recording and the sentence are required."}, status=400)
+    if not recorded or not sentence:
+        return JsonResponse({"error": "A recording and the sentence are required."}, status=400)
+    if not reference and not _reference_optional(request.data):
+        return JsonResponse({"error": NO_REFERENCE_ERROR}, status=400)
     try:
         evaluation = json.loads(request.data.get("evaluation") or "null")
     except ValueError:
@@ -797,14 +840,15 @@ def shadowing_save_test(request):
         "voice": request.data.get("voice", ""),  # display label, e.g. "11L Matilda · 0.7×"
         "tts": _tts_from(request.data),           # {provider, voice, speed, ssml_rate}
         "options": _options_from(request.data),
-        "files": {"reference": "reference.mp3", "recording": "recording.wav"},
+        "files": {"reference": "reference.mp3" if reference else None, "recording": "recording.wav"},
         "evaluation": evaluation,  # the result when it was saved, to compare re-runs with
     }
     s3 = _s3()
     bucket = settings.AWS_STORAGE_BUCKET_NAME
-    reference.seek(0)
     recorded.seek(0)
-    s3.put_object(Bucket=bucket, Key=f"{prefix}reference.mp3", Body=reference.read(), ContentType="audio/mpeg")
+    if reference:
+        reference.seek(0)
+        s3.put_object(Bucket=bucket, Key=f"{prefix}reference.mp3", Body=reference.read(), ContentType="audio/mpeg")
     s3.put_object(Bucket=bucket, Key=f"{prefix}recording.wav", Body=recorded.read(), ContentType="audio/wav")
     s3.put_object(
         Bucket=bucket, Key=f"{prefix}test.json",
@@ -839,7 +883,11 @@ def _saved_test_summary(s3, bucket, folder):
             "linking": summary.get("connected_speech_summary"),
             "heard": summary.get("heard_transcript"),
         },
-        "reference_url": get_s3_audio_url(f"{prefix}reference.mp3"),
+        # None for a connected-speech-only test saved without a reference.
+        "reference_url": (
+            get_s3_audio_url(f"{prefix}reference.mp3")
+            if (test.get("files") or {}).get("reference", "reference.mp3") else None
+        ),
         "recording_url": get_s3_audio_url(f"{prefix}recording.wav"),
     }
 
